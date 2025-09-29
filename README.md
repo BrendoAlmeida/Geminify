@@ -51,10 +51,10 @@ Create custom playlists from text prompts:
 	```env
 	SPOTIFY_CLIENT_ID=your_spotify_client_id
 	SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
-	SPOTIFY_REDIRECT_URI=http://localhost:3000/callback
+	SPOTIFY_REDIRECT_URI=http://127.0.0.1:3000/callback
 	GEMINI_API_KEY=your_gemini_api_key
-	# Optional override (defaults to gemini-1.5-flash)
-	GEMINI_MODEL=gemini-1.5-flash
+	# Optional override (defaults to gemini-2.5-flash)
+	GEMINI_MODEL=gemini-2.5-flash
 	```
 6. Run the app: `npm start`
 7. Navigate to `http://localhost:3000` and start your musical adventure!
