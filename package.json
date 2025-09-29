@@ -8,7 +8,8 @@
     "start": "node --loader ts-node/esm src/server.ts",
     "dev": "nodemon --watch 'src/**/*.ts' --exec 'node --loader ts-node/esm' src/server.ts",
     "build": "tsc",
-    "serve": "node dist/server.js"
+    "serve": "node dist/server.js",
+    "setup": "node --loader ts-node/esm scripts/setup.ts"
   },
   "keywords": [],
   "author": "",

@@ -27,7 +27,7 @@ const geminiApiKey = process.env.GEMINI_API_KEY;
 if (!geminiApiKey) {
     throw new Error("GEMINI_API_KEY environment variable is not set.");
 }
-const geminiDefaultModelName = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
+const geminiDefaultModelName = "gemini-1.5-flash";
 const geminiClient = new GoogleGenerativeAI(geminiApiKey);
 function getGeminiModel(modelName) {
     return geminiClient.getGenerativeModel({

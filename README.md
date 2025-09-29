@@ -52,20 +52,29 @@ Create custom playlists from text prompts:
 
 1. Clone this repository
 2. Install dependencies: `npm install`
-3. Set up your Spotify Developer account and create an app
-4. Set up your Google AI Studio account and generate a Gemini API key
-5. Create a `.env` file with your Spotify credentials and Gemini settings:
-	```env
-	SPOTIFY_CLIENT_ID=your_spotify_client_id
-	SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
-	SPOTIFY_REDIRECT_URI=http://127.0.0.1:3000/callback
-	GEMINI_API_KEY=your_gemini_api_key
-	# Optional override (defaults to gemini-1.5-flash)
-	GEMINI_MODEL=gemini-1.5-flash
-	```
-6. Build once (optional but recommended): `npm run build`
-7. Start in watch mode for local development: `npm run dev`
-8. Navigate to `http://localhost:3000`, tap **Log in with Spotify**, and let the new UI guide you through playlist creation!
+3. Gather credentials (see the walkthrough below)
+4. Run the guided setup: `npm run setup`
+5. Build once (optional but recommended): `npm run build`
+6. Start in watch mode for local development: `npm run dev`
+7. Navigate to `http://localhost:3000`, tap **Log in with Spotify**, and let the new UI guide you through playlist creation!
+
+### Where to find the credentials
+
+**Spotify:**
+
+1. Visit the [Spotify Developer Dashboard](https://developer.spotify.com/dashboard)
+2. Create a new application (or reuse an existing one)
+3. In *Settings*, add `http://127.0.0.1:3000/callback` as a Redirect URI
+4. Copy the Client ID and Client Secret for the setup script
+
+**Google Gemini:**
+
+1. Head to [Google AI Studio](https://makersuite.google.com/)
+2. Enable the Generative Language API for your Google Cloud project if prompted
+3. Generate a new API key under *Get API Key*
+4. Keep that key handy—the setup script will ask for it
+
+Run `npm run setup` anytime to update values; the script will create/refresh your `.env` automatically.
 
 ## UI Tour & Tips
 
