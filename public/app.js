@@ -55,6 +55,100 @@ const resultsContainer = document.getElementById("results");
 const customForm = document.getElementById("customForm");
 const customPrompt = document.getElementById("customPrompt");
 const formStatus = document.getElementById("formStatus");
+const modelSelect = document.getElementById("modelSelect");
+const modelStatus = document.getElementById("modelStatus");
+const refreshModelsButton = document.getElementById("refreshModels");
+
+const MODEL_STORAGE_KEY = "claudify:selectedGeminiModel";
+let availableModels = [];
+
+const formatTokenLimit = (value) =>
+  typeof value === "number" && Number.isFinite(value)
+    ? value.toLocaleString()
+    : undefined;
+
+const findModel = (modelName) =>
+  availableModels.find((model) => model.name === modelName) || null;
+
+const getSelectedModel = () => {
+  if (!modelSelect || modelSelect.disabled) return undefined;
+  const selected = modelSelect.value;
+  return selected && selected !== "" ? selected : undefined;
+};
+
+function updateModelStatus(model) {
+  if (!modelStatus) return;
+  if (!model) {
+    showStatus(modelStatus, "Select a Gemini model to start generating.", "error");
+    return;
+  }
+
+  const inputLimit = formatTokenLimit(model.inputTokenLimit);
+  const outputLimit = formatTokenLimit(model.outputTokenLimit);
+  const limitText =
+    inputLimit && outputLimit
+      ? `Tokens in/out: ${inputLimit} / ${outputLimit}`
+      : inputLimit
+      ? `Input tokens: ${inputLimit}`
+      : outputLimit
+      ? `Output tokens: ${outputLimit}`
+      : "";
+
+  const detail = [model.displayName || model.name, limitText, model.description]
+    .filter(Boolean)
+    .join(" · ");
+
+  showStatus(modelStatus, detail, "");
+}
+
+async function loadGeminiModels() {
+  if (!modelSelect || !modelStatus) return;
+
+  availableModels = [];
+  modelSelect.disabled = true;
+  showStatus(modelStatus, "Loading available Gemini models…", "");
+  modelSelect.innerHTML = '<option value="">Loading…</option>';
+
+  try {
+    const response = await fetch("/gemini-models");
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || "Failed to load Gemini models");
+    }
+
+    const data = await response.json();
+    const models = Array.isArray(data.models) ? data.models : [];
+    if (!models.length) {
+      throw new Error("No Gemini models available for this API key");
+    }
+
+    availableModels = models;
+    modelSelect.innerHTML = "";
+    models.forEach((model) => {
+      const option = document.createElement("option");
+      option.value = model.name;
+      option.textContent = model.displayName || model.name;
+      modelSelect.append(option);
+    });
+
+    const stored = localStorage.getItem(MODEL_STORAGE_KEY);
+    const defaultName = typeof data.defaultModel === "string" ? data.defaultModel : undefined;
+    const fallbackModel =
+      findModel(stored) || findModel(defaultName) || models[0];
+
+    if (fallbackModel) {
+      modelSelect.value = fallbackModel.name;
+      localStorage.setItem(MODEL_STORAGE_KEY, fallbackModel.name);
+      updateModelStatus(fallbackModel);
+    }
+
+    modelSelect.disabled = false;
+  } catch (error) {
+    modelSelect.innerHTML = '<option value="">Unavailable</option>';
+    modelSelect.disabled = true;
+    showStatus(modelStatus, error.message || "Could not load Gemini models", "error");
+  }
+}
 
 const createLoader = (label = "Loading playlists") => {
   const loader = document.createElement("div");
@@ -144,7 +238,15 @@ async function handlePreviewGeneration() {
   resultsContainer.append(loader);
 
   try {
-    const response = await fetch("/preview-playlists");
+    const selectedModel = getSelectedModel();
+    const params = new URLSearchParams();
+    if (selectedModel) {
+      params.set("model", selectedModel);
+    }
+    const query = params.toString();
+    const response = await fetch(
+      `/preview-playlists${query ? `?${query}` : ""}`
+    );
     if (!response.ok) {
       const errorPayload = await response.json().catch(() => ({}));
       throw Object.assign(new Error("Failed to generate playlists"), {
@@ -181,10 +283,16 @@ async function handleCustomSubmit(event) {
   }
 
   try {
+    const selectedModel = getSelectedModel();
+    const payload = { prompt: customPrompt.value };
+    if (selectedModel) {
+      payload.model = selectedModel;
+    }
+
     const response = await fetch("/create-custom-playlist", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ prompt: customPrompt.value }),
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
@@ -213,3 +321,17 @@ async function handleCustomSubmit(event) {
 
 previewButton?.addEventListener("click", handlePreviewGeneration);
 customForm?.addEventListener("submit", handleCustomSubmit);
+refreshModelsButton?.addEventListener("click", () => loadGeminiModels());
+modelSelect?.addEventListener("change", () => {
+  const selected = getSelectedModel();
+  if (!selected) {
+    localStorage.removeItem(MODEL_STORAGE_KEY);
+    updateModelStatus(null);
+    return;
+  }
+
+  localStorage.setItem(MODEL_STORAGE_KEY, selected);
+  updateModelStatus(findModel(selected));
+});
+
+loadGeminiModels();

@@ -1,6 +1,7 @@
 import express, { Request, Response } from "express";
 import SpotifyWebApi from "spotify-web-api-node";
 import { GoogleGenerativeAI } from "@google/generative-ai";
+import axios from "axios";
 import { promises as fs } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -33,14 +34,17 @@ if (!geminiApiKey) {
   throw new Error("GEMINI_API_KEY environment variable is not set.");
 }
 
-const geminiModelName = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
+const geminiDefaultModelName = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
 const geminiClient = new GoogleGenerativeAI(geminiApiKey);
-const geminiModel = geminiClient.getGenerativeModel({
-  model: geminiModelName,
-  generationConfig: {
-    responseMimeType: "application/json",
-  },
-});
+
+function getGeminiModel(modelName?: string) {
+  return geminiClient.getGenerativeModel({
+    model: modelName ?? geminiDefaultModelName,
+    generationConfig: {
+      responseMimeType: "application/json",
+    },
+  });
+}
 
 const tokenPath = path.join(__dirname, "..", "token.json");
 
@@ -114,9 +118,13 @@ function parseGeminiJson<T>(rawText: string): T {
   }
 }
 
-async function generateGeminiJson<T>(prompt: string): Promise<T> {
+async function generateGeminiJson<T>(
+  prompt: string,
+  modelName?: string
+): Promise<T> {
   log("Sending request to Gemini API");
-  const result = await geminiModel.generateContent(prompt);
+  const model = getGeminiModel(modelName);
+  const result = await model.generateContent(prompt);
   log("Received response from Gemini API");
   const text = result.response.text();
   return parseGeminiJson<T>(text);
@@ -126,7 +134,13 @@ async function generateGeminiJson<T>(prompt: string): Promise<T> {
 app.use(express.json());
 app.use(express.static(publicDir));
 
-const publicPaths = new Set(["/", "/favicon.ico", "/login", "/callback"]);
+const publicPaths = new Set([
+  "/",
+  "/favicon.ico",
+  "/login",
+  "/callback",
+  "/gemini-models",
+]);
 
 // Middleware to refresh token before each request
 app.use(async (req: Request, res: Response, next: Function) => {
@@ -153,6 +167,43 @@ app.use(async (req: Request, res: Response, next: Function) => {
 
 app.get("/", (_req: Request, res: Response) => {
   res.sendFile(path.join(publicDir, "index.html"));
+});
+
+app.get("/gemini-models", async (_req: Request, res: Response) => {
+  try {
+    log("Fetching Gemini model catalog");
+    const response = await axios.get(
+      "https://generativelanguage.googleapis.com/v1beta/models",
+      {
+        params: {
+          key: geminiApiKey,
+          pageSize: 50,
+        },
+      }
+    );
+
+    const models = (response.data.models ?? [])
+      .filter((model: any) =>
+        (model?.supportedGenerationMethods ?? []).includes("generateContent")
+      )
+      .map((model: any) => ({
+        name: model.name,
+        displayName: model.displayName ?? model.name,
+        description: model.description ?? "",
+        inputTokenLimit: model.inputTokenLimit,
+        outputTokenLimit: model.outputTokenLimit,
+      }))
+      .sort((a: { displayName: string }, b: { displayName: string }) =>
+        a.displayName.localeCompare(b.displayName)
+      );
+
+    res.json({ models, defaultModel: geminiDefaultModelName });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Failed to fetch Gemini models";
+    log(`Gemini model fetch failed: ${message}`);
+    res.status(500).json({ error: message });
+  }
 });
 
 // Routes
@@ -198,11 +249,13 @@ app.get("/liked-songs", async (_req: Request, res: Response) => {
   }
 });
 
-app.get("/generate-playlists", async (_req: Request, res: Response) => {
+app.get("/generate-playlists", async (req: Request, res: Response) => {
   try {
     log("Generating playlists");
     const likedSongs = await getAllLikedSongs();
-    const playlists = await generateOrLoadPlaylists(likedSongs);
+    const selectedModel =
+      typeof req.query.model === "string" ? req.query.model : undefined;
+    const playlists = await generateOrLoadPlaylists(likedSongs, selectedModel);
 
     await fs.writeFile(savedPlaylistsPath, JSON.stringify(playlists, null, 2));
     log(`Generated ${playlists.length} playlists and saved to file`);
@@ -290,7 +343,9 @@ app.get("/preview-playlists", async (_req: Request, res: Response) => {
     await refreshTokenIfNeeded();
 
     log("Fetching all playlists for preview");
-    const playlists = await loadOrGeneratePlaylistsForPreview();
+    const modelName =
+      typeof _req.query.model === "string" ? _req.query.model : undefined;
+    const playlists = await loadOrGeneratePlaylistsForPreview(modelName);
 
     const createdPlaylistIds: string[] = [];
     const previewPayload: PlaylistPreview[] = [];
@@ -385,7 +440,12 @@ app.post("/create-custom-playlist", async (req: Request, res: Response) => {
 
     log(`Received custom playlist prompt: ${userPrompt}`);
 
-    const customPlaylist = await generateCustomPlaylistWithGemini(userPrompt);
+    const modelName =
+      typeof req.body.model === "string" ? req.body.model.trim() : undefined;
+    const customPlaylist = await generateCustomPlaylistWithGemini(
+      userPrompt,
+      modelName
+    );
     const sanitizedPlaylist = sanitizePlaylistData(customPlaylist);
     const trackUris = await findTrackUris(sanitizedPlaylist.songs);
 
@@ -496,9 +556,10 @@ async function getAllLikedSongs(): Promise<LikedSong[]> {
 }
 
 async function generateOrLoadPlaylists(
-  likedSongs: LikedSong[]
+  likedSongs: LikedSong[],
+  modelName?: string
 ): Promise<Playlist[]> {
-  if (isDevelopment) {
+  if (isDevelopment && !modelName) {
     try {
       log("Attempting to load saved playlists");
       const savedPlaylists = await fs.readFile(savedPlaylistsPath, "utf8");
@@ -508,14 +569,19 @@ async function generateOrLoadPlaylists(
       log("No saved playlists found, generating new ones");
       return generatePlaylistsWithGemini(likedSongs);
     }
-  } else {
-    log("Production mode: Generating new playlists");
-    return generatePlaylistsWithGemini(likedSongs);
   }
+
+  log(
+    `Generating new playlists${
+      modelName ? ` with Gemini model ${modelName}` : ""
+    }`
+  );
+  return generatePlaylistsWithGemini(likedSongs, modelName);
 }
 
 async function generateCustomPlaylistWithGemini(
-  userPrompt: string
+  userPrompt: string,
+  modelName?: string
 ): Promise<Playlist> {
   log("Generating custom playlist with Gemini");
   const prompt = `
@@ -561,13 +627,18 @@ Respond with a JSON object representing the playlist. The object should have the
 Your response should contain only the JSON object, with no additional text or explanation.
   `;
 
-  return generateGeminiJson<Playlist>(prompt);
+  return generateGeminiJson<Playlist>(prompt, modelName);
 }
 
 async function generatePlaylistsWithGemini(
-  likedSongs: LikedSong[]
+  likedSongs: LikedSong[],
+  modelName?: string
 ): Promise<Playlist[]> {
-  log("Generating playlists with Gemini");
+  log(
+    `Generating playlists with Gemini${
+      modelName ? ` model ${modelName}` : ""
+    }`
+  );
   const prompt = `
     You are an innovative AI DJ tasked with creating unique and engaging playlists from a user's collection of liked songs. Your goal is to surprise and delight the user with unexpected combinations and creative themes.
 
@@ -603,31 +674,38 @@ async function generatePlaylistsWithGemini(
     ${JSON.stringify(likedSongs)}
   `;
 
-  return generateGeminiJson<Playlist[]>(prompt);
+  return generateGeminiJson<Playlist[]>(prompt, modelName);
 }
 
-async function loadOrGeneratePlaylistsForPreview(): Promise<Playlist[]> {
-  try {
-    log("Attempting to load saved playlists for preview");
-    const savedPlaylists = await fs.readFile(savedPlaylistsPath, "utf8");
-    log("Using saved playlists from disk");
-    return JSON.parse(savedPlaylists) as Playlist[];
-  } catch (error) {
-    const nodeError = error as NodeJS.ErrnoException;
-    if (nodeError?.code === "ENOENT") {
+async function loadOrGeneratePlaylistsForPreview(
+  modelName?: string
+): Promise<Playlist[]> {
+  if (!modelName) {
+    try {
+      log("Attempting to load saved playlists for preview");
+      const savedPlaylists = await fs.readFile(savedPlaylistsPath, "utf8");
+      log("Using saved playlists from disk");
+      return JSON.parse(savedPlaylists) as Playlist[];
+    } catch (error) {
+      const nodeError = error as NodeJS.ErrnoException;
+      if (nodeError?.code !== "ENOENT") {
+        log(`Failed to load saved playlists: ${error}`);
+        throw error;
+      }
+
       log(
         "saved_playlists.json not found. Generating new playlists for preview."
       );
-      const likedSongs = await getAllLikedSongs();
-      const playlists = await generatePlaylistsWithGemini(likedSongs);
-      await fs.writeFile(savedPlaylistsPath, JSON.stringify(playlists, null, 2));
-      log("New playlists generated and saved to disk");
-      return playlists;
     }
-
-    log(`Failed to load saved playlists: ${error}`);
-    throw error;
   }
+
+  const likedSongs = await getAllLikedSongs();
+  const playlists = await generatePlaylistsWithGemini(likedSongs, modelName);
+  if (!modelName) {
+    await fs.writeFile(savedPlaylistsPath, JSON.stringify(playlists, null, 2));
+    log("New playlists generated and saved to disk");
+  }
+  return playlists;
 }
 
 app.listen(port, () => {

@@ -31,6 +31,7 @@ Create custom playlists from text prompts:
 - A responsive “fluid glass” inspired UI that keeps the focus on the music
 - One-click Spotify login paired with inline playlist previews
 - Real-time status updates while Gemini generates or Spotify builds your mixes
+- On-page Gemini model picker so you can swap between Flash, Pro, or tuned variants without touching the backend
 
 ## How It Works
 
@@ -69,6 +70,7 @@ Create custom playlists from text prompts:
 ## UI Tour & Tips
 
 - The **Log in with Spotify** button initiates OAuth and unlocks playlist generation.
+- Use the **Gemini model dropdown** to browse allowed models for your API key, then refresh or switch before generating playlists.
 - **Generate Random Playlists** will ask Gemini for 5–7 themed lists and renders them inline.
 - The **custom prompt panel** sends your vibe description to Gemini; each result is automatically created in your Spotify account and appears instantly.
 - Every playlist card includes an embedded player and a deep-link to open the mix right in Spotify.

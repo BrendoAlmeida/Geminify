@@ -43,6 +43,16 @@
               Describe a mood, scene, story, or genre-bending idea. Gemini will weave 20+ tracks into a cohesive set, then we push it straight to your Spotify.
             </p>
           </div>
+          <div class="model-bar" aria-live="polite">
+            <div class="model-bar__top">
+              <label class="model-bar__label" for="modelSelect">Gemini model</label>
+              <button type="button" class="btn btn--ghost btn--compact" id="refreshModels">Refresh</button>
+            </div>
+            <select id="modelSelect" class="model-bar__select" disabled>
+              <option>Loading models…</option>
+            </select>
+            <p id="modelStatus" class="model-bar__status">Connecting to Gemini…</p>
+          </div>
           <form id="customForm" class="prompt-form">
             <textarea
               id="customPrompt"
