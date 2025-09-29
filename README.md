@@ -81,6 +81,7 @@ Run `npm run setup` anytime to update values; the script will create/refresh you
 - The **Log in with Spotify** button initiates OAuth and unlocks playlist generation.
 - Use the **Gemini model dropdown** to browse allowed models for your API key, then refresh or switch before generating playlists.
 - **Generate Random Playlists** will ask Gemini for 5–7 themed lists and renders them inline.
+- Watch the **live status ticker** to follow each step and see track names stream in while Gemini curates your mix.
 - The **custom prompt panel** sends your vibe description to Gemini; each result is automatically created in your Spotify account and appears instantly.
 - Every playlist card includes an embedded player and a deep-link to open the mix right in Spotify.
 

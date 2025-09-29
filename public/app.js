@@ -58,9 +58,220 @@ const formStatus = document.getElementById("formStatus");
 const modelSelect = document.getElementById("modelSelect");
 const modelStatus = document.getElementById("modelStatus");
 const refreshModelsButton = document.getElementById("refreshModels");
+const liveStatus = document.getElementById("liveStatus");
+const liveStatusLabel = document.querySelector(".live-status__label");
+const statusSteps = document.getElementById("statusSteps");
+const tickerInner = document.getElementById("tickerInner");
 
 const MODEL_STORAGE_KEY = "claudify:selectedGeminiModel";
 let availableModels = [];
+let statusTimeouts = [];
+let tickerRevealInterval = null;
+let currentTickerSongs = [];
+
+const placeholderSongs = [
+  "Neon Skyline — Midnight Arcade",
+  "Ocean Bloom — Luminous Drift",
+  "Starlight Pulse — Aiko Wave",
+  "Chromatic Echoes — Nova Bloom",
+  "Infrared Motel — Soft Static",
+  "Velvet Horizon — Nightline",
+  "Synthetic Dreams — Prisma",
+  "Electric Mirage — Lunar Tide",
+  "Photon Avenue — Glasshouse",
+  "Cascade Memoirs — Aurora City",
+];
+
+const loadingSequences = {
+  preview: [
+    "Calling Gemini",
+    "Curating themed playlists",
+    "Finding matching Spotify tracks",
+    "Building playlist embeds",
+  ],
+  custom: [
+    "Reading your prompt",
+    "Curating the perfect sequence",
+    "Matching tracks on Spotify",
+    "Publishing your playlist",
+  ],
+};
+
+function clearStatusTimeouts() {
+  statusTimeouts.forEach((timeoutId) => clearTimeout(timeoutId));
+  statusTimeouts = [];
+}
+
+function stopTickerReveal() {
+  if (tickerRevealInterval) {
+    clearInterval(tickerRevealInterval);
+    tickerRevealInterval = null;
+  }
+}
+
+function setLiveStatusLabel(text) {
+  if (liveStatusLabel) {
+    liveStatusLabel.textContent = text;
+  }
+}
+
+function renderStatusSteps(sequence) {
+  if (!statusSteps) return;
+  statusSteps.innerHTML = "";
+  sequence.forEach((label) => {
+    const li = document.createElement("li");
+    li.textContent = label;
+    statusSteps.append(li);
+  });
+}
+
+function updateStatusStep(index) {
+  if (!statusSteps) return;
+  const items = Array.from(statusSteps.querySelectorAll("li"));
+  items.forEach((item, idx) => {
+    item.classList.toggle("is-active", idx === index);
+    item.classList.toggle("is-complete", idx < index);
+  });
+  const current = items[index];
+  if (current) {
+    setLiveStatusLabel(current.textContent ?? "");
+  }
+}
+
+function setTickerSongs(songs, { animate = true } = {}) {
+  if (!tickerInner) return;
+  tickerInner.classList.remove("ticker__inner--animate");
+  tickerInner.innerHTML = "";
+
+  const source = songs && songs.length ? songs : placeholderSongs;
+  if (!source.length) {
+    const span = document.createElement("span");
+    span.className = "ticker__item";
+    span.textContent = "Waiting for tracks…";
+    tickerInner.append(span);
+    return;
+  }
+
+  const display = [];
+  const targetLength = Math.max(8, source.length * 2);
+  let index = 0;
+  while (display.length < targetLength) {
+    display.push(source[index % source.length]);
+    index += 1;
+  }
+
+  display.forEach((title) => {
+    const span = document.createElement("span");
+    span.className = "ticker__item";
+    span.textContent = title;
+    tickerInner.append(span);
+  });
+
+  if (animate && tickerInner.childElementCount) {
+    void tickerInner.offsetWidth; // restart animation
+    tickerInner.classList.add("ticker__inner--animate");
+  }
+}
+
+function startPlaceholderTicker() {
+  currentTickerSongs = [];
+  setTickerSongs(placeholderSongs);
+}
+
+function animateSongReveal(songs) {
+  stopTickerReveal();
+  currentTickerSongs = [];
+  const queue = songs.filter(Boolean);
+  if (!queue.length) {
+    setTickerSongs(placeholderSongs);
+    return;
+  }
+
+  let index = 0;
+  tickerRevealInterval = setInterval(() => {
+    currentTickerSongs.push(queue[index]);
+    setTickerSongs(currentTickerSongs);
+    index += 1;
+    if (index >= queue.length) {
+      stopTickerReveal();
+      setTimeout(() => setTickerSongs(currentTickerSongs), 600);
+    }
+  }, 500);
+}
+
+function resetLiveStatus() {
+  clearStatusTimeouts();
+  stopTickerReveal();
+  if (liveStatus) {
+    liveStatus.hidden = true;
+    liveStatus.classList.remove("is-error");
+  }
+  setLiveStatusLabel("Tuning Gemini's frequency…");
+  if (statusSteps) {
+    statusSteps.innerHTML = "";
+  }
+  currentTickerSongs = [];
+  if (tickerInner) {
+    tickerInner.innerHTML = "";
+    tickerInner.classList.remove("ticker__inner--animate");
+  }
+}
+
+function startLiveStatus(type) {
+  if (!liveStatus) return;
+  liveStatus.hidden = false;
+  liveStatus.classList.remove("is-error");
+  const sequence = loadingSequences[type] || [];
+  renderStatusSteps(sequence);
+  clearStatusTimeouts();
+  stopTickerReveal();
+  startPlaceholderTicker();
+  if (!sequence.length) {
+    setLiveStatusLabel("Creating playlists…");
+    return;
+  }
+
+  updateStatusStep(0);
+  statusTimeouts = sequence.slice(1).map((_, idx) =>
+    setTimeout(() => {
+      updateStatusStep(idx + 1);
+    }, (idx + 1) * 2200)
+  );
+}
+
+function completeLiveStatus(songTitles) {
+  if (!liveStatus) return;
+  clearStatusTimeouts();
+  const items = statusSteps
+    ? Array.from(statusSteps.querySelectorAll("li"))
+    : [];
+  items.forEach((item) => {
+    item.classList.remove("is-active");
+    item.classList.add("is-complete");
+  });
+  setLiveStatusLabel("Playlists prontas!");
+  animateSongReveal(songTitles);
+  setTimeout(() => {
+    if (liveStatus) {
+      liveStatus.hidden = true;
+    }
+  }, 4500);
+}
+
+function failLiveStatus(message) {
+  if (!liveStatus) return;
+  clearStatusTimeouts();
+  stopTickerReveal();
+  liveStatus.classList.add("is-error");
+  setLiveStatusLabel(message || "Algo deu errado");
+  setTickerSongs([], { animate: false });
+  setTimeout(() => {
+    if (liveStatus) {
+      liveStatus.hidden = true;
+      liveStatus.classList.remove("is-error");
+    }
+  }, 5000);
+}
 
 const formatTokenLimit = (value) =>
   typeof value === "number" && Number.isFinite(value)
@@ -236,6 +447,8 @@ async function handlePreviewGeneration() {
   const loader = createLoader();
   resultsContainer.innerHTML = "";
   resultsContainer.append(loader);
+  resetLiveStatus();
+  startLiveStatus("preview");
 
   try {
     const selectedModel = getSelectedModel();
@@ -257,10 +470,19 @@ async function handlePreviewGeneration() {
 
     const data = await response.json();
     renderPlaylists(data.playlists || []);
+    const songTitles = (data.playlists || [])
+      .flatMap((playlist) => playlist.songs || [])
+      .map((song) =>
+        song?.title && song?.artist ? `${song.title} — ${song.artist}` : undefined
+      )
+      .filter(Boolean)
+      .slice(0, 40);
+    completeLiveStatus(songTitles);
   } catch (error) {
     const status = error.status === 401 ? "Spotify login required" : error.detail || error.message;
     showStatus(formStatus, status, "error");
     resultsContainer.innerHTML = "";
+    failLiveStatus(typeof status === "string" ? status : "Falha na geração");
   } finally {
     previewButton.disabled = false;
     previewButton.textContent = "Generate Random Playlists";
@@ -275,6 +497,8 @@ async function handleCustomSubmit(event) {
   }
 
   showStatus(formStatus, "Spinning up your mix...", "");
+  resetLiveStatus();
+  startLiveStatus("custom");
 
   const submitButton = customForm.querySelector("button[type=submit]");
   if (submitButton) {
@@ -307,10 +531,18 @@ async function handleCustomSubmit(event) {
       prependPlaylist(data.playlist);
       showStatus(formStatus, "Custom playlist created and added to Spotify!", "success");
       customForm.reset();
+      const songTitles = (data.playlist.songs || [])
+        .map((song) =>
+          song?.title && song?.artist ? `${song.title} — ${song.artist}` : undefined
+        )
+        .filter(Boolean)
+        .slice(0, 30);
+      completeLiveStatus(songTitles);
     }
   } catch (error) {
     const message = error.status === 401 ? "Please log in with Spotify to continue." : error.message;
     showStatus(formStatus, message, "error");
+    failLiveStatus(message);
   } finally {
     if (submitButton) {
       submitButton.disabled = false;

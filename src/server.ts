@@ -78,6 +78,7 @@ interface PlaylistPreview {
   description: string;
   embedUrl: string;
   spotifyUrl: string;
+  songs: Song[];
 }
 
 const requestQueue = new RequestQueue();
@@ -397,6 +398,7 @@ app.get("/preview-playlists", async (_req: Request, res: Response) => {
           description: sanitizedPlaylist.description,
           embedUrl: `https://open.spotify.com/embed/playlist/${newPlaylist.body.id}?utm_source=generator`,
           spotifyUrl: `https://open.spotify.com/playlist/${newPlaylist.body.id}`,
+          songs: sanitizedPlaylist.songs,
         });
       } catch (error) {
         const errorMessage = formatSpotifyError(error);
@@ -477,6 +479,7 @@ app.post("/create-custom-playlist", async (req: Request, res: Response) => {
         description: sanitizedPlaylist.description,
         embedUrl: `https://open.spotify.com/embed/playlist/${newPlaylist.body.id}?utm_source=generator`,
         spotifyUrl: `https://open.spotify.com/playlist/${newPlaylist.body.id}`,
+        songs: sanitizedPlaylist.songs,
       },
     });
   } catch (error) {

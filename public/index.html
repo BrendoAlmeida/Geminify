@@ -73,6 +73,16 @@
               Newly created Spotify playlists appear below. Press play inline or open them directly in Spotify to keep the vibe going.
             </p>
           </div>
+          <div id="liveStatus" class="live-status" hidden>
+            <div class="live-status__loader" role="status" aria-live="polite">
+              <span class="loader__orb"></span>
+              <span class="live-status__label">Tuning Gemini&apos;s frequency…</span>
+            </div>
+            <ul id="statusSteps" class="live-status__steps"></ul>
+            <div class="ticker" id="liveTicker" aria-live="polite">
+              <div class="ticker__inner" id="tickerInner"></div>
+            </div>
+          </div>
           <div id="results" class="playlist-grid" aria-live="polite"></div>
         </section>
       </main>

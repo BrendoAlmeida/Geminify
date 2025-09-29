@@ -277,6 +277,7 @@ app.get("/preview-playlists", async (_req, res) => {
                     description: sanitizedPlaylist.description,
                     embedUrl: `https://open.spotify.com/embed/playlist/${newPlaylist.body.id}?utm_source=generator`,
                     spotifyUrl: `https://open.spotify.com/playlist/${newPlaylist.body.id}`,
+                    songs: sanitizedPlaylist.songs,
                 });
             }
             catch (error) {
@@ -337,6 +338,7 @@ app.post("/create-custom-playlist", async (req, res) => {
                 description: sanitizedPlaylist.description,
                 embedUrl: `https://open.spotify.com/embed/playlist/${newPlaylist.body.id}?utm_source=generator`,
                 spotifyUrl: `https://open.spotify.com/playlist/${newPlaylist.body.id}`,
+                songs: sanitizedPlaylist.songs,
             },
         });
     }
