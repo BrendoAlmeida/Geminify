@@ -26,6 +26,12 @@ Create custom playlists from text prompts:
 - Combines well-known tracks with hidden gems
 - Creates unique listening experiences tailored to your input
 
+### 3. Fluid Dark Glass Interface 🪟🌌
+
+- A responsive “fluid glass” inspired UI that keeps the focus on the music
+- One-click Spotify login paired with inline playlist previews
+- Real-time status updates while Gemini generates or Spotify builds your mixes
+
 ## How It Works
 
 1. Connect your Spotify account
@@ -53,11 +59,19 @@ Create custom playlists from text prompts:
 	SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
 	SPOTIFY_REDIRECT_URI=http://127.0.0.1:3000/callback
 	GEMINI_API_KEY=your_gemini_api_key
-	# Optional override (defaults to gemini-2.5-flash)
-	GEMINI_MODEL=gemini-2.5-flash
+	# Optional override (defaults to gemini-1.5-flash)
+	GEMINI_MODEL=gemini-1.5-flash
 	```
-6. Run the app: `npm start`
-7. Navigate to `http://localhost:3000` and start your musical adventure!
+6. Build once (optional but recommended): `npm run build`
+7. Start in watch mode for local development: `npm run dev`
+8. Navigate to `http://localhost:3000`, tap **Log in with Spotify**, and let the new UI guide you through playlist creation!
+
+## UI Tour & Tips
+
+- The **Log in with Spotify** button initiates OAuth and unlocks playlist generation.
+- **Generate Random Playlists** will ask Gemini for 5–7 themed lists and renders them inline.
+- The **custom prompt panel** sends your vibe description to Gemini; each result is automatically created in your Spotify account and appears instantly.
+- Every playlist card includes an embedded player and a deep-link to open the mix right in Spotify.
 
 ## Contributing
 

@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Claudify · AI Playlist Curator</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <link
+      rel="preconnect"
+      href="https://fonts.googleapis.com"
+    />
+    <link
+      rel="preconnect"
+      href="https://fonts.gstatic.com"
+      crossorigin
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600;700&display=swap"
+      rel="stylesheet"
+    />
+  </head>
+  <body>
+    <canvas id="background" aria-hidden="true"></canvas>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero__content">
+          <h1 class="hero__title">Craft soundscapes with AI + Spotify</h1>
+          <p class="hero__subtitle">
+            Spin up immersive playlists with a tap or describe the vibe and let Gemini curate a bespoke mix in seconds.
+          </p>
+          <div class="hero__actions">
+            <a class="btn btn--primary" href="/login" id="loginButton">Log in with Spotify</a>
+            <button class="btn btn--ghost" id="previewButton">Generate Random Playlists</button>
+          </div>
+        </div>
+      </header>
+
+      <main class="content">
+        <section class="panel panel--glass" aria-labelledby="customPromptTitle">
+          <div class="panel__header">
+            <h2 class="panel__title" id="customPromptTitle">Dream up a custom mix</h2>
+            <p class="panel__description">
+              Describe a mood, scene, story, or genre-bending idea. Gemini will weave 20+ tracks into a cohesive set, then we push it straight to your Spotify.
+            </p>
+          </div>
+          <form id="customForm" class="prompt-form">
+            <textarea
+              id="customPrompt"
+              name="prompt"
+              rows="4"
+              placeholder="e.g. A neon-lit midnight drive through Tokyo blending synthwave, future funk, and vapor soul"
+              required
+            ></textarea>
+            <button type="submit" class="btn btn--primary">Create Custom Playlist</button>
+          </form>
+          <div id="formStatus" class="status" role="status" aria-live="polite"></div>
+        </section>
+
+        <section class="panel panel--glass" aria-labelledby="resultsTitle">
+          <div class="panel__header">
+            <h2 class="panel__title" id="resultsTitle">Your generated playlists</h2>
+            <p class="panel__description">
+              Newly created Spotify playlists appear below. Press play inline or open them directly in Spotify to keep the vibe going.
+            </p>
+          </div>
+          <div id="results" class="playlist-grid" aria-live="polite"></div>
+        </section>
+      </main>
+
+      <footer class="footer">
+        <p>Built with ❤️ using Spotify Web API and Google Gemini</p>
+      </footer>
+    </div>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>

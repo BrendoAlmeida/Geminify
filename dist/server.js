@@ -15,6 +15,7 @@ const port = 3000;
 // Environment setup
 const isDevelopment = process.env.NODE_ENV !== "production";
 const savedPlaylistsPath = path.join(__dirname, "..", "saved_playlists.json");
+const publicDir = path.join(__dirname, "..", "public");
 // Spotify API credentials (you'd need to set these up)
 const spotifyApi = new SpotifyWebApi({
     clientId: process.env.SPOTIFY_CLIENT_ID,
@@ -73,6 +74,7 @@ async function generateGeminiJson(prompt) {
 }
 // Middleware
 app.use(express.json());
+app.use(express.static(publicDir));
 const publicPaths = new Set(["/", "/favicon.ico", "/login", "/callback"]);
 // Middleware to refresh token before each request
 app.use(async (req, res, next) => {
@@ -96,106 +98,7 @@ app.use(async (req, res, next) => {
     }
 });
 app.get("/", (_req, res) => {
-    const htmlResponse = `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="UTF-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1.0">
-      <title>AI Playlist Generator</title>
-      <style>
-        body {
-          font-family: Arial, sans-serif;
-          line-height: 1.6;
-          color: #333;
-          max-width: 800px;
-          margin: 0 auto;
-          padding: 20px;
-          background-color: #f4f4f4;
-        }
-        h1 {
-          color: #1DB954;
-          text-align: center;
-        }
-        .button-container {
-          display: flex;
-          justify-content: space-around;
-          margin-top: 50px;
-        }
-        .button {
-          display: inline-block;
-          background-color: #1DB954;
-          color: white;
-          padding: 10px 20px;
-          text-decoration: none;
-          border-radius: 5px;
-          font-weight: bold;
-        }
-        #customPrompt {
-          width: 100%;
-          padding: 10px;
-          margin-top: 20px;
-        }
-        #submitCustom {
-          display: block;
-          margin: 20px auto;
-        }
-        .nav {
-          background-color: #1DB954;
-          color: white;
-          padding: 10px;
-          margin-bottom: 20px;
-        }
-        .nav a {
-          color: white;
-          text-decoration: none;
-          margin-right: 15px;
-        }
-      </style>
-    </head>
-    <body>
-      <div class="nav">
-        <a href="/">Home</a>
-        <a href="/preview-playlists">Random Playlists</a>
-      </div>
-      <h1>AI Playlist Generator</h1>
-      <div class="button-container">
-        <a href="/preview-playlists" class="button">Generate Random Playlists</a>
-        <a href="#" class="button" id="customButton">Create Custom Playlist</a>
-      </div>
-      <textarea id="customPrompt" rows="4" placeholder="Enter your playlist description here..." style="display: none;"></textarea>
-      <button id="submitCustom" class="button" style="display: none;">Create Playlist</button>
-      
-      <script>
-        document.getElementById('customButton').addEventListener('click', function(e) {
-          e.preventDefault();
-          document.getElementById('customPrompt').style.display = 'block';
-          document.getElementById('submitCustom').style.display = 'block';
-        });
-
-        document.getElementById('submitCustom').addEventListener('click', function() {
-          const prompt = document.getElementById('customPrompt').value;
-          fetch('/create-custom-playlist', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ prompt: prompt }),
-          })
-          .then(response => response.text())
-          .then(html => {
-            document.body.innerHTML = html;
-          })
-          .catch((error) => {
-            console.error('Error:', error);
-            alert('An error occurred while creating the playlist.');
-          });
-        });
-      </script>
-    </body>
-    </html>
-  `;
-    res.send(htmlResponse);
+    res.sendFile(path.join(publicDir, "index.html"));
 });
 // Routes
 app.get("/login", (_req, res) => {
@@ -303,7 +206,7 @@ app.get("/preview-playlists", async (_req, res) => {
         log("Fetching all playlists for preview");
         const playlists = await loadOrGeneratePlaylistsForPreview();
         const createdPlaylistIds = [];
-        const playlistEmbeds = [];
+        const previewPayload = [];
         for (const playlist of playlists) {
             try {
                 log(`Processing playlist: ${playlist.name}`);
@@ -318,98 +221,35 @@ app.get("/preview-playlists", async (_req, res) => {
                 log(`Attempting to create playlist: ${sanitizedPlaylist.name}`);
                 log(`Playlist description: ${sanitizedPlaylist.description}`);
                 log(`Number of valid tracks: ${validTrackUris.length}`);
-                // Create the playlist
                 const newPlaylist = await requestQueue.add(() => spotifyApi.createPlaylist(sanitizedPlaylist.name, {
                     description: sanitizedPlaylist.description,
                     public: false,
                 }));
                 log(`Successfully created playlist: ${newPlaylist.body.id}`);
-                // Add tracks to the playlist
                 const batchSize = 100; // Spotify allows up to 100 tracks per request
                 for (let i = 0; i < validTrackUris.length; i += batchSize) {
                     const batch = validTrackUris.slice(i, i + batchSize);
                     await requestQueue.add(() => spotifyApi.addTracksToPlaylist(newPlaylist.body.id, batch));
                 }
                 createdPlaylistIds.push(newPlaylist.body.id);
-                playlistEmbeds.push(`
-          <div class="playlist-card">
-            <h2>${sanitizedPlaylist.name}</h2>
-            <p>${sanitizedPlaylist.description}</p>
-            <iframe 
-              src="https://open.spotify.com/embed/playlist/${newPlaylist.body.id}?utm_source=generator" 
-              width="100%" 
-              height="352" 
-              frameBorder="0" 
-              allowfullscreen="" 
-              allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" 
-              loading="lazy">
-            </iframe>
-          </div>
-        `);
+                previewPayload.push({
+                    id: newPlaylist.body.id,
+                    name: sanitizedPlaylist.name,
+                    description: sanitizedPlaylist.description,
+                    embedUrl: `https://open.spotify.com/embed/playlist/${newPlaylist.body.id}?utm_source=generator`,
+                    spotifyUrl: `https://open.spotify.com/playlist/${newPlaylist.body.id}`,
+                });
             }
             catch (error) {
                 const errorMessage = formatSpotifyError(error);
                 log(`Error processing playlist "${playlist.name}":\n${errorMessage}`);
             }
         }
-        if (playlistEmbeds.length === 0) {
+        if (previewPayload.length === 0) {
             throw new Error("No valid playlists could be created");
         }
-        const htmlResponse = `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>AI Generated Playlists - Preview</title>
-        <style>
-          body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 1200px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f4f4f4;
-          }
-          h1 {
-            color: #1DB954;
-            text-align: center;
-            margin-bottom: 30px;
-          }
-          .playlist-grid {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
-            gap: 20px;
-          }
-          .playlist-card {
-            background-color: #fff;
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-          }
-          h2 {
-            color: #1DB954;
-            margin-top: 0;
-          }
-          p {
-            margin-bottom: 15px;
-          }
-          iframe {
-            border-radius: 12px;
-          }
-        </style>
-      </head>
-      <body>
-        <h1>AI Generated Playlists</h1>
-        <div class="playlist-grid">
-          ${playlistEmbeds.join("")}
-        </div>
-      </body>
-      </html>
-    `;
-        log("Sending HTML response with embedded players");
-        res.send(htmlResponse);
+        log("Sending JSON response with playlist previews");
+        res.json({ playlists: previewPayload });
         // // Optional: Delete the created playlists after a certain time
         // setTimeout(async () => {
         //   try {
@@ -425,103 +265,45 @@ app.get("/preview-playlists", async (_req, res) => {
     catch (error) {
         const errorMessage = formatSpotifyError(error);
         log(`Error creating preview playlists:\n${errorMessage}`);
-        res.status(500).send(`Error: ${errorMessage}`);
+        res.status(500).json({ error: errorMessage });
     }
 });
 app.post("/create-custom-playlist", async (req, res) => {
     try {
         await refreshTokenIfNeeded();
-        const userPrompt = req.body.prompt;
+        const userPrompt = typeof req.body.prompt === "string" ? req.body.prompt.trim() : "";
         if (!userPrompt) {
-            return res.status(400).send("Prompt is required");
+            return res.status(400).json({ error: "Prompt is required" });
         }
         log(`Received custom playlist prompt: ${userPrompt}`);
         const customPlaylist = await generateCustomPlaylistWithGemini(userPrompt);
-        const trackUris = await findTrackUris(customPlaylist.songs);
+        const sanitizedPlaylist = sanitizePlaylistData(customPlaylist);
+        const trackUris = await findTrackUris(sanitizedPlaylist.songs);
         const validTrackUris = trackUris.filter((uri) => uri !== undefined);
         if (validTrackUris.length === 0) {
             return res
                 .status(404)
-                .send("No valid tracks found for the custom playlist");
+                .json({ error: "No valid tracks found for the custom playlist" });
         }
-        const newPlaylist = await requestQueue.add(() => spotifyApi.createPlaylist(customPlaylist.name, {
-            description: customPlaylist.description,
+        const newPlaylist = await requestQueue.add(() => spotifyApi.createPlaylist(sanitizedPlaylist.name, {
+            description: sanitizedPlaylist.description,
             public: false,
         }));
         await requestQueue.add(() => spotifyApi.addTracksToPlaylist(newPlaylist.body.id, validTrackUris));
-        const playlistEmbed = `
-      <div class="playlist-card">
-        <h2>${customPlaylist.name}</h2>
-        <p>${customPlaylist.description}</p>
-        <iframe 
-          src="https://open.spotify.com/embed/playlist/${newPlaylist.body.id}?utm_source=generator" 
-          width="100%" 
-          height="352" 
-          frameBorder="0" 
-          allowfullscreen="" 
-          allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture" 
-          loading="lazy">
-        </iframe>
-      </div>
-    `;
-        const htmlResponse = `
-      <!DOCTYPE html>
-      <html lang="en">
-      <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>${customPlaylist.name} - Custom Playlist</title>
-        <style>
-          body {
-            font-family: Arial, sans-serif;
-            line-height: 1.6;
-            color: #333;
-            max-width: 800px;
-            margin: 0 auto;
-            padding: 20px;
-            background-color: #f4f4f4;
-          }
-          h1, h2 {
-            color: #1DB954;
-          }
-          .playlist-card {
-            background-color: #fff;
-            border-radius: 8px;
-            padding: 20px;
-            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-          }
-          iframe {
-            border-radius: 12px;
-          }
-          .nav {
-            background-color: #1DB954;
-            color: white;
-            padding: 10px;
-            margin-bottom: 20px;
-          }
-          .nav a {
-            color: white;
-            text-decoration: none;
-            margin-right: 15px;
-          }
-        </style>
-      </head>
-      <body>
-        <div class="nav">
-          <a href="/">Home</a>
-          <a href="/preview-playlists">Random Playlists</a>
-        </div>
-        <h1>Your Custom Playlist</h1>
-        ${playlistEmbed}
-      </body>
-      </html>
-    `;
-        res.send(htmlResponse);
+        res.json({
+            playlist: {
+                id: newPlaylist.body.id,
+                name: sanitizedPlaylist.name,
+                description: sanitizedPlaylist.description,
+                embedUrl: `https://open.spotify.com/embed/playlist/${newPlaylist.body.id}?utm_source=generator`,
+                spotifyUrl: `https://open.spotify.com/playlist/${newPlaylist.body.id}`,
+            },
+        });
     }
     catch (error) {
         const errorMessage = formatSpotifyError(error);
         log(`Error creating custom playlist:\n${errorMessage}`);
-        res.status(500).send(`Error: ${errorMessage}`);
+        res.status(500).json({ error: errorMessage });
     }
 });
 async function refreshTokenIfNeeded() {
