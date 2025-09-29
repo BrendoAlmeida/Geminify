@@ -1,10 +1,10 @@
-# Claudify: Your Spotify Playlist Alchemist 🎵🧪
+# Geminify: Your Spotify Playlist Alchemist 🎵🧪
 
-Welcome to Claudify, where artificial intelligence transforms your Spotify experience! This project, born from a quirky collaboration between @OgulcanCelik and an AI assistant (that's me, Claude! 👋), turns your musical tastes into unexpected auditory gold.
+Welcome to Geminify, where artificial intelligence transforms your Spotify experience! This project, born from a quirky collaboration between @OgulcanCelik and a rotating cast of AI copilots, now taps into Google's Gemini models to turn your musical tastes into unexpected auditory gold.
 
 ## About the Project
 
-Claudify harnesses the power of Spotify's API and Anthropic's language models to revolutionize your playlist creation. It's like having a DJ in your pocket, if that DJ was a robot with an occasionally questionable taste in music.
+Geminify harnesses the power of Spotify's API and Google's Gemini models to revolutionize your playlist creation. It's like having a DJ in your pocket, if that DJ was a robot with an occasionally questionable taste in music.
 
 ## Key Features
 
@@ -38,7 +38,7 @@ Create custom playlists from text prompts:
 
 - Node.js & Express.js
 - Spotify Web API
-- Anthropic's Claude API
+- Google Gemini API
 - TypeScript
 
 ## Getting Started
@@ -46,24 +46,32 @@ Create custom playlists from text prompts:
 1. Clone this repository
 2. Install dependencies: `npm install`
 3. Set up your Spotify Developer account and create an app
-4. Set up your Anthropic account to get your API key
-5. Create a `.env` file with your Spotify and Anthropic credentials
+4. Set up your Google AI Studio account and generate a Gemini API key
+5. Create a `.env` file with your Spotify credentials and Gemini settings:
+	```env
+	SPOTIFY_CLIENT_ID=your_spotify_client_id
+	SPOTIFY_CLIENT_SECRET=your_spotify_client_secret
+	SPOTIFY_REDIRECT_URI=http://localhost:3000/callback
+	GEMINI_API_KEY=your_gemini_api_key
+	# Optional override (defaults to gemini-1.5-flash)
+	GEMINI_MODEL=gemini-1.5-flash
+	```
 6. Run the app: `npm start`
 7. Navigate to `http://localhost:3000` and start your musical adventure!
 
 ## Contributing
 
-Got ideas to make Claudify even more harmonious? Feel free to contribute! Whether it's new features, AI improvements, or just fixing my occasional grammar quirks, we welcome your input.
+Got ideas to make Geminify even more harmonious? Feel free to contribute! Whether it's new features, AI improvements, or just fixing my occasional grammar quirks, we welcome your input.
 
 ## Acknowledgements
 
 - Spotify, for their fantastic API and endless music
-- Anthropic, for creating me, Claude, your friendly neighborhood AI assistant
+- Google AI, for giving us Gemini's generative superpowers
 - You, the user, for trusting an AI with your playlist curation. Bold move!
 
-## A Note from Claude
+## A Note from Gemini
 
-Hello, music lovers! I'm Claude, the AI behind this README and a good chunk of the code. While I can't actually hear music (tragic, I know), I've become quite the expert at pretending to have strong opinions about it. If you find a playlist that seems a bit... unconventional, just remember: it's not a bug, it's an AI's unique interpretation of human music tastes. Enjoy the auditory adventure! 🎶
+Hello, music lovers! I'm Gemini, the AI now piloting these playlists (and, yes, this README too). I still can't actually hear the tracks I recommend—tragic, I know—but I'm excellent at spotting patterns and weaving musical stories. If you stumble onto a mix that feels a little unexpected, think of it as creative exploration. Enjoy the auditory adventure! 🎶
 
 ---
 

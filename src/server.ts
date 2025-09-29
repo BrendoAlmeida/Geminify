@@ -1,6 +1,6 @@
 import express, { Request, Response } from "express";
 import SpotifyWebApi from "spotify-web-api-node";
-import Anthropic from "@anthropic-ai/sdk";
+import { GoogleGenerativeAI } from "@google/generative-ai";
 import { promises as fs } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
@@ -27,9 +27,18 @@ const spotifyApi = new SpotifyWebApi({
   redirectUri: process.env.SPOTIFY_REDIRECT_URI,
 });
 
-// Anthropic API setup
-const anthropic = new Anthropic({
-  apiKey: process.env.ANTHROPIC_API_KEY,
+const geminiApiKey = process.env.GEMINI_API_KEY;
+if (!geminiApiKey) {
+  throw new Error("GEMINI_API_KEY environment variable is not set.");
+}
+
+const geminiModelName = process.env.GEMINI_MODEL ?? "gemini-1.5-flash";
+const geminiClient = new GoogleGenerativeAI(geminiApiKey);
+const geminiModel = geminiClient.getGenerativeModel({
+  model: geminiModelName,
+  generationConfig: {
+    responseMimeType: "application/json",
+  },
 });
 
 const tokenPath = path.join(__dirname, "..", "token.json");
@@ -49,6 +58,7 @@ interface LikedSong {
 interface Song {
   title: string;
   artist: string;
+  country?: string;
 }
 
 interface Playlist {
@@ -59,6 +69,13 @@ interface Playlist {
 
 const requestQueue = new RequestQueue();
 
+class MissingTokenError extends Error {
+  constructor(message = "Spotify authentication required.") {
+    super(message);
+    this.name = "MissingTokenError";
+  }
+}
+
 // Logging function
 const log = (message: string) => {
   if (isDevelopment) {
@@ -66,22 +83,61 @@ const log = (message: string) => {
   }
 };
 
+function parseGeminiJson<T>(rawText: string): T {
+  let text = rawText.trim();
+  if (text.startsWith("```")) {
+    text = text
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/```$/i, "")
+      .trim();
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch (error) {
+    const snippet = text.slice(0, 500);
+    log(
+      `Failed to parse Gemini response: ${snippet}${
+        text.length > 500 ? "..." : ""
+      }`
+    );
+    throw new Error("Gemini response was not valid JSON");
+  }
+}
+
+async function generateGeminiJson<T>(prompt: string): Promise<T> {
+  log("Sending request to Gemini API");
+  const result = await geminiModel.generateContent(prompt);
+  log("Received response from Gemini API");
+  const text = result.response.text();
+  return parseGeminiJson<T>(text);
+}
+
 // Middleware
 app.use(express.json());
 
+const publicPaths = new Set(["/", "/favicon.ico", "/login", "/callback"]);
+
 // Middleware to refresh token before each request
 app.use(async (req: Request, res: Response, next: Function) => {
-  if (req.path !== "/login" && req.path !== "/callback") {
-    try {
-      log(`Refreshing token for path: ${req.path}`);
-      await refreshTokenIfNeeded();
-      next();
-    } catch (error) {
-      log(`Token refresh failed: ${error}`);
-      res.status(401).send("Authentication required. Please log in again.");
-    }
-  } else {
+  if (publicPaths.has(req.path)) {
+    return next();
+  }
+
+  try {
+    log(`Refreshing token for path: ${req.path}`);
+    await refreshTokenIfNeeded();
     next();
+  } catch (error) {
+    if (error instanceof MissingTokenError) {
+      log(`Token missing for path ${req.path}`);
+      return res
+        .status(401)
+        .send("Authentication required. Please log in at /login.");
+    }
+
+    log(`Token refresh failed: ${error}`);
+    res.status(401).send("Authentication required. Please log in again.");
   }
 });
 
@@ -323,10 +379,8 @@ app.get("/preview-playlists", async (_req: Request, res: Response) => {
   try {
     await refreshTokenIfNeeded();
 
-    log("Fetching all playlists");
-    const playlists: Playlist[] = JSON.parse(
-      await fs.readFile(savedPlaylistsPath, "utf8")
-    );
+    log("Fetching all playlists for preview");
+    const playlists = await loadOrGeneratePlaylistsForPreview();
 
     const createdPlaylistIds: string[] = [];
     const playlistEmbeds: string[] = [];
@@ -486,7 +540,7 @@ app.post("/create-custom-playlist", async (req: Request, res: Response) => {
 
     log(`Received custom playlist prompt: ${userPrompt}`);
 
-    const customPlaylist = await generateCustomPlaylistWithClaude(userPrompt);
+  const customPlaylist = await generateCustomPlaylistWithGemini(userPrompt);
     const trackUris = await findTrackUris(customPlaylist.songs);
 
     const validTrackUris = trackUris.filter(
@@ -588,11 +642,22 @@ app.post("/create-custom-playlist", async (req: Request, res: Response) => {
 });
 
 async function refreshTokenIfNeeded(): Promise<void> {
-  try {
-    const tokenData: TokenData = JSON.parse(
-      await fs.readFile(tokenPath, "utf8")
-    );
+  let tokenData: TokenData;
 
+  try {
+    tokenData = JSON.parse(await fs.readFile(tokenPath, "utf8"));
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError?.code === "ENOENT") {
+      log("Token file not found. User must log in to Spotify.");
+      throw new MissingTokenError();
+    }
+
+    log(`Failed to read token file: ${error}`);
+    throw new Error("Failed to refresh token. Please log in again.");
+  }
+
+  try {
     if (Date.now() > tokenData.expires_at - 300000) {
       log("Access token expired or expiring soon, refreshing");
       spotifyApi.setRefreshToken(tokenData.refresh_token);
@@ -656,18 +721,18 @@ async function generateOrLoadPlaylists(
       return JSON.parse(savedPlaylists);
     } catch (error) {
       log("No saved playlists found, generating new ones");
-      return generatePlaylistsWithClaude(likedSongs);
+      return generatePlaylistsWithGemini(likedSongs);
     }
   } else {
     log("Production mode: Generating new playlists");
-    return generatePlaylistsWithClaude(likedSongs);
+    return generatePlaylistsWithGemini(likedSongs);
   }
 }
 
-async function generateCustomPlaylistWithClaude(
+async function generateCustomPlaylistWithGemini(
   userPrompt: string
 ): Promise<Playlist> {
-  log("Generating custom playlist with Claude");
+  log("Generating custom playlist with Gemini");
   const prompt = `
 You are an innovative AI DJ tasked with creating a unique and engaging playlist based on the following user prompt:
 
@@ -711,21 +776,13 @@ Respond with a JSON object representing the playlist. The object should have the
 Your response should contain only the JSON object, with no additional text or explanation.
   `;
 
-  log("Sending request to Claude API");
-  const response = await anthropic.messages.create({
-    model: "claude-3-sonnet-20240229",
-    max_tokens: 4000,
-    messages: [{ role: "user", content: prompt }],
-  });
-
-  log("Received response from Claude API");
-  return JSON.parse((response.content[0] as Anthropic.TextBlock).text);
+  return generateGeminiJson<Playlist>(prompt);
 }
 
-async function generatePlaylistsWithClaude(
+async function generatePlaylistsWithGemini(
   likedSongs: LikedSong[]
 ): Promise<Playlist[]> {
-  log("Generating playlists with Claude");
+  log("Generating playlists with Gemini");
   const prompt = `
     You are an innovative AI DJ tasked with creating unique and engaging playlists from a user's collection of liked songs. Your goal is to surprise and delight the user with unexpected combinations and creative themes.
 
@@ -761,15 +818,31 @@ async function generatePlaylistsWithClaude(
     ${JSON.stringify(likedSongs)}
   `;
 
-  log("Sending request to Claude API");
-  const response = await anthropic.messages.create({
-    model: "claude-3-sonnet-20240229",
-    max_tokens: 4000,
-    messages: [{ role: "user", content: prompt }],
-  });
+  return generateGeminiJson<Playlist[]>(prompt);
+}
 
-  log("Received response from Claude API");
-  return JSON.parse((response.content[0] as Anthropic.TextBlock).text);
+async function loadOrGeneratePlaylistsForPreview(): Promise<Playlist[]> {
+  try {
+    log("Attempting to load saved playlists for preview");
+    const savedPlaylists = await fs.readFile(savedPlaylistsPath, "utf8");
+    log("Using saved playlists from disk");
+    return JSON.parse(savedPlaylists) as Playlist[];
+  } catch (error) {
+    const nodeError = error as NodeJS.ErrnoException;
+    if (nodeError?.code === "ENOENT") {
+      log(
+        "saved_playlists.json not found. Generating new playlists for preview."
+      );
+      const likedSongs = await getAllLikedSongs();
+      const playlists = await generatePlaylistsWithGemini(likedSongs);
+      await fs.writeFile(savedPlaylistsPath, JSON.stringify(playlists, null, 2));
+      log("New playlists generated and saved to disk");
+      return playlists;
+    }
+
+    log(`Failed to load saved playlists: ${error}`);
+    throw error;
+  }
 }
 
 app.listen(port, () => {
