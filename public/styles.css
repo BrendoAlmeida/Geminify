@@ -18,97 +18,62 @@ body {
   margin: 0;
   font-family: "Poppins", sans-serif;
   color: var(--text-primary);
-  background: var(--bg-primary);
+  background: radial-gradient(circle at 15% 15%, rgba(54, 196, 255, 0.12), transparent 45%),
+    radial-gradient(circle at 80% 10%, rgba(74, 242, 197, 0.12), transparent 40%),
+    var(--bg-primary);
   min-height: 100vh;
   overflow-x: hidden;
 }
 
 canvas#background {
   position: fixed;
-  inset: 0;
-  width: 100%;
-  height: 100%;
-  z-index: -2;
+  top: 0;
+  left: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: -1;
 }
 
 .page-shell {
-  position: relative;
-  z-index: 1;
-  padding: 48px clamp(16px, 6vw, 64px);
+  width: min(1100px, 100% - 48px);
+  margin: 0 auto;
+  padding: clamp(32px, 6vw, 72px) 0 clamp(56px, 8vw, 96px);
   display: flex;
   flex-direction: column;
-  gap: 48px;
+  gap: clamp(48px, 8vw, 80px);
 }
 
-.hero {
-  display: flex;
-  justify-content: center;
-  text-align: center;
-}
-
-.hero__content {
-  max-width: 780px;
-  background: linear-gradient(120deg, rgba(74, 242, 197, 0.12), rgba(54, 196, 255, 0.08));
-  border-radius: 32px;
-  padding: clamp(32px, 6vw, 64px);
-  position: relative;
-  overflow: hidden;
-  box-shadow: var(--shadow-soft);
-}
-
-.hero__content::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(135deg, rgba(255, 255, 255, 0.2), transparent 60%);
-  mix-blend-mode: screen;
-  pointer-events: none;
-}
-
-.hero__title {
-  font-size: clamp(2.25rem, 4vw, 3.5rem);
-  font-weight: 600;
-  margin-bottom: 16px;
-}
-
-.hero__subtitle {
-  margin: 0 auto 32px;
-  max-width: 520px;
-  color: var(--text-muted);
-  font-size: clamp(1rem, 1.6vw, 1.1rem);
-}
-
-.hero__actions {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 16px;
-  justify-content: center;
+main.content {
+  display: grid;
+  gap: clamp(32px, 5vw, 56px);
 }
 
 .btn {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  border: none;
+  gap: 0.5rem;
+  padding: 14px 26px;
   border-radius: 999px;
-  font-weight: 500;
-  letter-spacing: 0.02em;
+  border: none;
   cursor: pointer;
-  padding: 14px 28px;
-  font-size: 1rem;
+  font-family: inherit;
+  font-weight: 600;
+  font-size: 0.95rem;
   text-decoration: none;
-  transition: transform var(--transition), box-shadow var(--transition), background var(--transition);
+  color: var(--text-primary);
+  background: transparent;
+  transition: transform var(--transition), box-shadow var(--transition), background var(--transition), color var(--transition);
 }
 
 .btn:focus-visible {
-  outline: 2px solid rgba(255, 255, 255, 0.6);
-  outline-offset: 4px;
+  outline: 2px solid rgba(54, 196, 255, 0.55);
+  outline-offset: 3px;
 }
 
 .btn--primary {
-  background: linear-gradient(135deg, var(--accent), var(--accent-strong));
-  color: #04172b;
+  background: linear-gradient(120deg, rgba(76, 151, 255, 0.95), rgba(86, 232, 205, 0.92));
   box-shadow: 0 15px 40px rgba(54, 196, 255, 0.35);
 }
 
@@ -250,6 +215,55 @@ canvas#background {
   outline: none;
   border-color: var(--accent-strong);
   background: rgba(8, 12, 28, 0.8);
+}
+
+.playlist-upgrade {
+  display: grid;
+  gap: 10px;
+}
+
+.playlist-upgrade__label {
+  font-weight: 500;
+  color: var(--text-primary);
+}
+
+.playlist-upgrade__select-row {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.playlist-upgrade__select-label {
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.75);
+}
+
+.playlist-upgrade__select {
+  width: 100%;
+}
+
+.playlist-upgrade__input {
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  background: rgba(8, 12, 28, 0.55);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 0.95rem;
+  padding: 14px 18px;
+  outline: none;
+  transition: border var(--transition), background var(--transition);
+}
+
+.playlist-upgrade__input:focus {
+  border-color: var(--accent-strong);
+  background: rgba(8, 12, 28, 0.8);
+}
+
+.playlist-upgrade__hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.85rem;
 }
 
 .status {

@@ -120,6 +120,29 @@ const log = (message) => {
         console.log(`[${new Date().toISOString()}] ${message}`);
     }
 };
+const playlistPatterns = [
+    /playlist\/([A-Za-z0-9]{16,})/i,
+    /spotify:playlist:([A-Za-z0-9]{16,})/i,
+];
+function extractSpotifyPlaylistId(reference) {
+    if (!reference) {
+        return null;
+    }
+    const value = reference.trim();
+    if (!value) {
+        return null;
+    }
+    for (const pattern of playlistPatterns) {
+        const match = value.match(pattern);
+        if (match?.[1]) {
+            return match[1];
+        }
+    }
+    if (/^[A-Za-z0-9]{16,}$/i.test(value)) {
+        return value;
+    }
+    return null;
+}
 function parseGeminiJson(rawText) {
     let text = rawText.trim();
     if (text.startsWith("```")) {
@@ -505,6 +528,61 @@ app.get("/preview-playlists", async (_req, res) => {
         res.status(500).json({ error: errorMessage });
     }
 });
+app.get("/user-playlists", async (_req, res) => {
+    try {
+        await refreshTokenIfNeeded();
+    }
+    catch (error) {
+        if (error instanceof MissingTokenError) {
+            return res.status(401).json({ error: error.message });
+        }
+        log(`Failed to refresh token before loading playlists: ${error}`);
+        return res
+            .status(500)
+            .json({ error: "Failed to refresh Spotify token. Please try again." });
+    }
+    try {
+        const limit = 50;
+        let offset = 0;
+        const maxPlaylists = 200;
+        const collected = [];
+        while (collected.length < maxPlaylists) {
+            const response = await requestQueue.add(() => spotifyApi.getUserPlaylists({ limit, offset }));
+            const body = response.body;
+            const items = body?.items ?? [];
+            const total = typeof body?.total === "number" ? body.total : undefined;
+            for (const playlist of items) {
+                if (!playlist?.id || !playlist?.name)
+                    continue;
+                collected.push({
+                    id: playlist.id,
+                    name: playlist.name,
+                    description: playlist.description ?? "",
+                    trackCount: playlist.tracks?.total ?? 0,
+                    collaborative: Boolean(playlist.collaborative),
+                    owner: playlist.owner?.display_name || playlist.owner?.id,
+                    image: playlist.images?.[0]?.url ?? null,
+                });
+                if (collected.length >= maxPlaylists) {
+                    break;
+                }
+            }
+            offset += items.length;
+            const reachedEnd = !items.length ||
+                (typeof total === "number" ? offset >= total : items.length < limit);
+            if (reachedEnd) {
+                break;
+            }
+        }
+        res.json({ playlists: collected });
+    }
+    catch (error) {
+        const errorMessage = formatSpotifyError(error);
+        log(`Error fetching user playlists:\n${errorMessage}`);
+        const statusCode = error?.statusCode === 401 ? 401 : 500;
+        res.status(statusCode).json({ error: "Failed to load playlists from Spotify." });
+    }
+});
 app.post("/create-custom-playlist", async (req, res) => {
     const statusContext = statusBroadcaster.hasSubscribers()
         ? statusBroadcaster.createContext("custom")
@@ -515,7 +593,38 @@ app.post("/create-custom-playlist", async (req, res) => {
         if (!userPrompt) {
             return res.status(400).json({ error: "Prompt is required" });
         }
+        const playlistReference = typeof req.body.playlistId === "string" ? req.body.playlistId.trim() : "";
+        const targetPlaylistId = extractSpotifyPlaylistId(playlistReference);
+        if (playlistReference && !targetPlaylistId) {
+            return res.status(400).json({
+                error: "Could not understand that playlist link. Paste a Spotify playlist URL or ID.",
+            });
+        }
         log(`Received custom playlist prompt: ${userPrompt}`);
+        let existingPlaylist = null;
+        if (targetPlaylistId) {
+            try {
+                const playlistResponse = await requestQueue.add(() => spotifyApi.getPlaylist(targetPlaylistId));
+                existingPlaylist = playlistResponse.body;
+            }
+            catch (error) {
+                const statusCode = error?.statusCode;
+                const formatted = formatSpotifyError(error);
+                log(`Failed to load target playlist ${targetPlaylistId}:
+${formatted}`);
+                if (statusCode === 404) {
+                    return res.status(404).json({
+                        error: "We couldn't find that playlist. Make sure the link is correct and try again.",
+                    });
+                }
+                if (statusCode === 403) {
+                    return res.status(403).json({
+                        error: "We can't edit that playlist. Check that you own it or it's collaborative.",
+                    });
+                }
+                throw error;
+            }
+        }
         const modelName = typeof req.body.model === "string" ? req.body.model.trim() : undefined;
         if (statusContext && statusBroadcaster.hasSubscribers()) {
             statusBroadcaster.geminiStart(statusContext, {
@@ -530,7 +639,10 @@ app.post("/create-custom-playlist", async (req, res) => {
         if (statusContext && statusBroadcaster.hasSubscribers()) {
             statusBroadcaster.geminiComplete(statusContext, {
                 totalPlaylists: 1,
-                label: "Playlist personalizada pronta!",
+                label: targetPlaylistId
+                    ? "Sugestões prontas para atualizar sua playlist!"
+                    : "Playlist personalizada pronta!",
+                songs: sanitizedPlaylist.songs?.slice(0, 80),
             });
         }
         const trackUris = await findTrackUris(sanitizedPlaylist.songs);
@@ -540,20 +652,63 @@ app.post("/create-custom-playlist", async (req, res) => {
                 .status(404)
                 .json({ error: "No valid tracks found for the custom playlist" });
         }
-        const newPlaylist = await requestQueue.add(() => spotifyApi.createPlaylist(sanitizedPlaylist.name, {
-            description: sanitizedPlaylist.description,
-            public: false,
-        }));
-        await requestQueue.add(() => spotifyApi.addTracksToPlaylist(newPlaylist.body.id, validTrackUris));
-        res.json({
-            playlist: {
+        const uniqueTrackUris = Array.from(new Set(validTrackUris));
+        if (statusContext && statusBroadcaster.hasSubscribers() && targetPlaylistId) {
+            statusBroadcaster.statusMessage(statusContext, {
+                message: existingPlaylist?.name
+                    ? `Atualizando “${existingPlaylist.name}”…`
+                    : "Atualizando sua playlist…",
+            });
+        }
+        let responsePayload;
+        if (targetPlaylistId && existingPlaylist) {
+            await requestQueue.add(() => spotifyApi.addTracksToPlaylist(targetPlaylistId, uniqueTrackUris));
+            const description = sanitizedPlaylist.description
+                ? sanitizedPlaylist.description
+                : existingPlaylist.description || sanitizedPlaylist.name;
+            if (description) {
+                try {
+                    await requestQueue.add(() => spotifyApi.changePlaylistDetails(targetPlaylistId, {
+                        description,
+                    }));
+                }
+                catch (error) {
+                    log(`Failed to update playlist description for ${targetPlaylistId}:
+${formatSpotifyError(error)}`);
+                }
+            }
+            if (statusContext && statusBroadcaster.hasSubscribers()) {
+                statusBroadcaster.statusMessage(statusContext, {
+                    message: "Novas faixas adicionadas à sua playlist!",
+                });
+            }
+            responsePayload = {
+                id: targetPlaylistId,
+                name: existingPlaylist.name || sanitizedPlaylist.name,
+                description,
+                embedUrl: `https://open.spotify.com/embed/playlist/${targetPlaylistId}?utm_source=generator`,
+                spotifyUrl: `https://open.spotify.com/playlist/${targetPlaylistId}`,
+                songs: sanitizedPlaylist.songs,
+                upgraded: true,
+            };
+        }
+        else {
+            const newPlaylist = await requestQueue.add(() => spotifyApi.createPlaylist(sanitizedPlaylist.name, {
+                description: sanitizedPlaylist.description,
+                public: false,
+            }));
+            await requestQueue.add(() => spotifyApi.addTracksToPlaylist(newPlaylist.body.id, uniqueTrackUris));
+            responsePayload = {
                 id: newPlaylist.body.id,
                 name: sanitizedPlaylist.name,
                 description: sanitizedPlaylist.description,
                 embedUrl: `https://open.spotify.com/embed/playlist/${newPlaylist.body.id}?utm_source=generator`,
                 spotifyUrl: `https://open.spotify.com/playlist/${newPlaylist.body.id}`,
                 songs: sanitizedPlaylist.songs,
-            },
+            };
+        }
+        res.json({
+            playlist: responsePayload,
         });
     }
     catch (error) {

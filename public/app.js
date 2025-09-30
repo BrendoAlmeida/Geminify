@@ -54,6 +54,9 @@ const previewButton = document.getElementById("previewButton");
 const resultsContainer = document.getElementById("results");
 const customForm = document.getElementById("customForm");
 const customPrompt = document.getElementById("customPrompt");
+const targetPlaylistInput = document.getElementById("targetPlaylist");
+const playlistSelect = document.getElementById("playlistSelect");
+const playlistSelectStatus = document.getElementById("playlistSelectStatus");
 const formStatus = document.getElementById("formStatus");
 const modelSelect = document.getElementById("modelSelect");
 const modelStatus = document.getElementById("modelStatus");
@@ -108,6 +111,12 @@ const loadingSequences = {
     "Curating the perfect sequence",
     "Matching tracks on Spotify",
     "Publishing your playlist",
+  ],
+  customUpgrade: [
+    "Reading your prompt",
+    "Curating the perfect sequence",
+    "Matching tracks on Spotify",
+    "Refreshing your playlist",
   ],
   genre: [
     "Carregando músicas curtidas",
@@ -714,6 +723,146 @@ function showStatus(element, message, type) {
   }
 }
 
+function setPlaylistSelectStatus(message, type) {
+  if (!playlistSelectStatus) return;
+  playlistSelectStatus.textContent = message || "";
+  playlistSelectStatus.classList.remove("status--error", "status--success");
+  if (type) {
+    playlistSelectStatus.classList.add(type === "error" ? "status--error" : "status--success");
+  }
+}
+
+const findPlaylistOption = (value) => {
+  if (!playlistSelect || !value) return null;
+  return (
+    Array.from(playlistSelect.options).find((option) => option.value === value) || null
+  );
+};
+
+function updatePlaylistStatusForValue(value) {
+  const trimmed = value ? value.trim() : "";
+  if (!trimmed) {
+    setPlaylistSelectStatus("Cole um link ou selecione uma playlist (opcional)", "");
+    return;
+  }
+
+  const option = findPlaylistOption(trimmed);
+  if (option) {
+    const label = option.dataset?.name || option.textContent || "sua playlist";
+    setPlaylistSelectStatus(`Vamos turbinar “${label}”`, "success");
+  } else {
+    setPlaylistSelectStatus(
+      "Usando link/ID personalizado. Certifique-se de que a playlist é sua ou colaborativa.",
+      ""
+    );
+  }
+}
+
+function syncPlaylistSelectionFromCurrentValue() {
+  if (!targetPlaylistInput) {
+    updatePlaylistStatusForValue("");
+    return;
+  }
+  const currentValue = targetPlaylistInput.value.trim();
+  if (playlistSelect) {
+    const match = findPlaylistOption(currentValue);
+    playlistSelect.value = match ? match.value : "";
+  }
+  updatePlaylistStatusForValue(currentValue);
+}
+
+async function loadUserPlaylists() {
+  if (!playlistSelect) return;
+
+  playlistSelect.disabled = true;
+  playlistSelect.innerHTML = '<option value="">Carregando…</option>';
+  setPlaylistSelectStatus("Carregando suas playlists…", "");
+
+  try {
+    const response = await fetch("/user-playlists");
+    if (response.status === 401) {
+      playlistSelect.innerHTML = '<option value="">Faça login para carregar suas playlists</option>';
+      setPlaylistSelectStatus(
+        "Entre com o Spotify para selecionar uma playlist existente.",
+        "error"
+      );
+      return;
+    }
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw new Error(payload.error || "Não foi possível carregar suas playlists.");
+    }
+
+    const data = await response.json();
+    const playlists = Array.isArray(data?.playlists) ? data.playlists : [];
+
+    playlistSelect.innerHTML = "";
+
+    if (!playlists.length) {
+      const option = document.createElement("option");
+      option.value = "";
+      option.textContent = "Nenhuma playlist encontrada";
+      option.selected = true;
+      playlistSelect.append(option);
+      setPlaylistSelectStatus("Não encontramos playlists na sua conta ainda.", "");
+      playlistSelect.disabled = true;
+      return;
+    }
+
+    const placeholder = document.createElement("option");
+    placeholder.value = "";
+    placeholder.textContent = "Selecionar playlist (opcional)";
+    placeholder.selected = true;
+    playlistSelect.append(placeholder);
+
+    playlists.slice(0, 200).forEach((playlist) => {
+      if (!playlist?.id || !playlist?.name) return;
+      const option = document.createElement("option");
+      option.value = playlist.id;
+      const trackCount = typeof playlist.trackCount === "number" ? playlist.trackCount : undefined;
+      option.textContent = trackCount
+        ? `${playlist.name} (${trackCount} ${trackCount === 1 ? "música" : "músicas"})`
+        : playlist.name;
+      option.dataset.name = playlist.name;
+      playlistSelect.append(option);
+    });
+
+    playlistSelect.disabled = false;
+    syncPlaylistSelectionFromCurrentValue();
+    if (!targetPlaylistInput || !targetPlaylistInput.value.trim()) {
+      setPlaylistSelectStatus("Selecione uma playlist para aprimorar ou cole um link abaixo.", "");
+    }
+  } catch (error) {
+    const message = error?.message || "Não foi possível carregar suas playlists.";
+    playlistSelect.innerHTML = '<option value="">Carregar novamente</option>';
+    setPlaylistSelectStatus(message, "error");
+    playlistSelect.disabled = true;
+  }
+}
+
+function handlePlaylistSelectChange() {
+  if (!playlistSelect) return;
+  const selectedValue = playlistSelect.value || "";
+  if (targetPlaylistInput) {
+    targetPlaylistInput.value = selectedValue;
+  }
+  updatePlaylistStatusForValue(selectedValue);
+}
+
+function handlePlaylistManualInput() {
+  if (!targetPlaylistInput) return;
+  const trimmed = targetPlaylistInput.value.trim();
+  if (targetPlaylistInput.value !== trimmed) {
+    targetPlaylistInput.value = trimmed;
+  }
+  if (playlistSelect) {
+    const match = findPlaylistOption(trimmed);
+    playlistSelect.value = match ? match.value : "";
+  }
+  updatePlaylistStatusForValue(trimmed);
+}
+
 function renderPlaylists(playlists) {
   resultsContainer.innerHTML = "";
   playlists.forEach((playlist) => {
@@ -894,14 +1043,19 @@ async function handlePreviewGeneration() {
 
 async function handleCustomSubmit(event) {
   event.preventDefault();
-  if (!customPrompt.value.trim()) {
+  const promptValue = customPrompt.value.trim();
+  const manualTarget = targetPlaylistInput ? targetPlaylistInput.value.trim() : "";
+  const selectedTarget = playlistSelect ? playlistSelect.value.trim() : "";
+  const playlistTarget = manualTarget || selectedTarget;
+
+  if (!promptValue) {
     showStatus(formStatus, "Please describe the playlist vibe first.", "error");
     return;
   }
 
   showStatus(formStatus, "Spinning up your mix...", "");
   resetLiveStatus();
-  startLiveStatus("custom");
+  startLiveStatus(playlistTarget ? "customUpgrade" : "custom");
 
   const submitButton = customForm.querySelector("button[type=submit]");
   if (submitButton) {
@@ -911,9 +1065,12 @@ async function handleCustomSubmit(event) {
 
   try {
     const selectedModel = getSelectedModel();
-    const payload = { prompt: customPrompt.value };
+    const payload = { prompt: promptValue };
     if (selectedModel) {
       payload.model = selectedModel;
+    }
+    if (playlistTarget) {
+      payload.playlistId = playlistTarget;
     }
 
     const response = await fetch("/create-custom-playlist", {
@@ -932,8 +1089,31 @@ async function handleCustomSubmit(event) {
     const data = await response.json();
     if (data?.playlist) {
       prependPlaylist(data.playlist);
-      showStatus(formStatus, "Custom playlist created and added to Spotify!", "success");
-      customForm.reset();
+      const wasUpgraded = Boolean(data.playlist.upgraded || playlistTarget);
+      showStatus(
+        formStatus,
+        wasUpgraded
+          ? "Playlist updated with fresh tracks on Spotify!"
+          : "Custom playlist created and added to Spotify!",
+        "success"
+      );
+      if (wasUpgraded) {
+        customPrompt.value = "";
+        if (targetPlaylistInput) {
+          targetPlaylistInput.value = playlistTarget;
+        }
+        if (playlistSelect) {
+          const match = findPlaylistOption(playlistTarget);
+          playlistSelect.value = match ? match.value : "";
+        }
+        updatePlaylistStatusForValue(playlistTarget);
+      } else {
+        customForm.reset();
+        if (playlistSelect) {
+          playlistSelect.value = "";
+        }
+        updatePlaylistStatusForValue("");
+      }
       const songTitles = (data.playlist.songs || [])
         .map((song) =>
           song?.title && song?.artist ? `${song.title} — ${song.artist}` : undefined
@@ -1048,6 +1228,8 @@ groupGenresButton?.addEventListener("click", handleGenreGrouping);
 previewButton?.addEventListener("click", handlePreviewGeneration);
 customForm?.addEventListener("submit", handleCustomSubmit);
 refreshModelsButton?.addEventListener("click", () => loadGeminiModels());
+playlistSelect?.addEventListener("change", handlePlaylistSelectChange);
+targetPlaylistInput?.addEventListener("input", handlePlaylistManualInput);
 modelSelect?.addEventListener("change", () => {
   const selected = getSelectedModel();
   if (!selected) {
@@ -1062,3 +1244,4 @@ modelSelect?.addEventListener("change", () => {
 
 initStatusStream();
 loadGeminiModels();
+loadUserPlaylists();

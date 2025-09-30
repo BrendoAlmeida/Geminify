@@ -25,6 +25,7 @@ Create custom playlists from text prompts:
 - AI interprets your prompt and curates a playlist
 - Combines well-known tracks with hidden gems
 - Creates unique listening experiences tailored to your input
+- Already have a playlist you adore? Paste the link and Geminify will append a fresh set of tracks without nuking the originals
 
 ### 3. Fluid Dark Glass Interface 🪟🌌
 
@@ -84,6 +85,7 @@ Run `npm run setup` anytime to update values; the script will create/refresh you
 - **Generate Random Playlists** will ask Gemini for 5–7 themed lists and renders them inline.
 - Watch the **live status ticker** to follow each step and see track names stream in while Gemini curates your mix.
 - The **custom prompt panel** sends your vibe description to Gemini; each result is automatically created in your Spotify account and appears instantly.
+- Use the new **playlist picker** to quickly choose one of your Spotify playlists for enhancement, or paste a link/ID if you prefer manual control.
 - Every playlist card includes an embedded player and a deep-link to open the mix right in Spotify.
 
 ## Contributing

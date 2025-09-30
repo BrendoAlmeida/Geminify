@@ -61,6 +61,31 @@
               placeholder="e.g. A neon-lit midnight drive through Tokyo blending synthwave, future funk, and vapor soul"
               required
             ></textarea>
+            <div class="playlist-upgrade" data-enhance>
+              <label class="playlist-upgrade__label" for="targetPlaylist">Improve an existing playlist (optional)</label>
+              <div class="playlist-upgrade__select-row">
+                <label class="playlist-upgrade__select-label" for="playlistSelect">Choose from your playlists</label>
+                <select
+                  id="playlistSelect"
+                  class="playlist-upgrade__select model-bar__select"
+                  aria-describedby="playlistSelectStatus"
+                >
+                  <option value="">Loading playlists…</option>
+                </select>
+                <p id="playlistSelectStatus" class="playlist-upgrade__hint status" data-select-status></p>
+              </div>
+              <input
+                id="targetPlaylist"
+                name="playlistId"
+                type="text"
+                class="playlist-upgrade__input"
+                placeholder="Paste a Spotify playlist link or ID"
+                autocomplete="off"
+              />
+              <p class="playlist-upgrade__hint">
+                We&apos;ll keep the playlist and add fresh tracks from your prompt. Leave blank to create a brand-new mix.
+              </p>
+            </div>
             <button type="submit" class="btn btn--primary">Create Custom Playlist</button>
           </form>
           <div id="formStatus" class="status" role="status" aria-live="polite"></div>
