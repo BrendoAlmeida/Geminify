@@ -6,7 +6,8 @@ import { promises as fs } from "fs";
 import path from "path";
 import { fileURLToPath } from "url";
 import { RequestQueue } from "./requestQueue";
-import { formatSpotifyError } from "./utils";
+import { exponentialBackoff, formatSpotifyError } from "./utils";
+import statusBroadcaster from "./statusBroadcaster";
 import dotenv from "dotenv";
 dotenv.config();
 const __filename = fileURLToPath(import.meta.url);
@@ -39,6 +40,74 @@ function getGeminiModel(modelName) {
 }
 const tokenPath = path.join(__dirname, "..", "token.json");
 const requestQueue = new RequestQueue();
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const GENRE_KEYWORDS = [
+    { key: "k-pop", label: "K-Pop", test: /k[\s-]?pop/i },
+    { key: "pop", label: "Pop", test: /\bpop\b/i },
+    { key: "rock", label: "Rock", test: /\brock\b/i },
+    { key: "hip-hop", label: "Hip-Hop", test: /hip[\s-]?hop/i },
+    { key: "rap", label: "Rap", test: /\brap\b/i },
+    { key: "r&b", label: "R&B", test: /r&b|r\s*&\s*b|rnb/i },
+    { key: "soul", label: "Soul", test: /\bsoul\b/i },
+    { key: "jazz", label: "Jazz", test: /\bjazz\b/i },
+    { key: "funk", label: "Funk", test: /\bfunk\b/i },
+    { key: "house", label: "House", test: /\bhouse\b/i },
+    { key: "edm", label: "EDM", test: /\bedm\b/i },
+    { key: "electronic", label: "Eletrônica", test: /electro|electronic|synth/i },
+    { key: "dance", label: "Dance", test: /\bdance\b/i },
+    { key: "metal", label: "Metal", test: /\bmetal\b/i },
+    { key: "punk", label: "Punk", test: /\bpunk\b/i },
+    { key: "indie", label: "Indie", test: /\bindie\b/i },
+    { key: "latin", label: "Latino", test: /latin|reggaeton|cumbia|bossa|samba|mpb/i },
+    { key: "country", label: "Country", test: /\bcountry\b/i },
+    { key: "folk", label: "Folk", test: /\bfolk\b/i },
+    { key: "classical", label: "Clássico", test: /classical|orchestral|baroque/i },
+    { key: "lofi", label: "Lo-Fi", test: /lo[\s-]?fi/i },
+    { key: "blues", label: "Blues", test: /\bblues\b/i },
+    { key: "reggae", label: "Reggae", test: /\breggae\b/i },
+    { key: "gospel", label: "Gospel", test: /gospel|worship/i },
+    { key: "anime", label: "Anime / J-POP", test: /anime|j\s*-?pop|japanese/i },
+];
+function formatGenreChunk(chunk) {
+    if (!chunk)
+        return "";
+    if (chunk.length <= 3) {
+        return chunk.toUpperCase();
+    }
+    return chunk.charAt(0).toUpperCase() + chunk.slice(1);
+}
+function formatGenreName(genre) {
+    if (!genre)
+        return "Sem gênero";
+    return genre
+        .split(/[\s/]+/)
+        .map((segment) => segment
+        .split("-")
+        .map((part) => formatGenreChunk(part))
+        .join("-"))
+        .join(" ");
+}
+function createGenreDescription(genre, count) {
+    const plural = count === 1 ? "música" : "músicas";
+    if (genre === "Sem gênero") {
+        return `Coleção com ${count} ${plural} favoritas sem gênero definido.`;
+    }
+    return `${count} ${plural} curtidas com a energia de ${genre}. Perfeitas para mergulhar nesse estilo.`;
+}
+function resolveGenreGroup(genres) {
+    if (!genres?.length) {
+        return { key: "sem-genero", label: "Sem gênero" };
+    }
+    for (const genre of genres) {
+        const match = GENRE_KEYWORDS.find((candidate) => candidate.test.test(genre));
+        if (match) {
+            return { key: match.key, label: match.label };
+        }
+    }
+    const primary = genres[0];
+    const key = primary.toLowerCase().replace(/[^a-z0-9]+/gi, "-");
+    return { key, label: formatGenreName(primary) };
+}
 class MissingTokenError extends Error {
     constructor(message = "Spotify authentication required.") {
         super(message);
@@ -85,7 +154,11 @@ const publicPaths = new Set([
     "/login",
     "/callback",
     "/gemini-models",
+    "/status-stream",
 ]);
+app.get("/status-stream", (req, res) => {
+    statusBroadcaster.handleConnection(req, res);
+});
 // Middleware to refresh token before each request
 app.use(async (req, res, next) => {
     if (publicPaths.has(req.path)) {
@@ -163,73 +236,144 @@ app.get("/callback", async (req, res) => {
     }
 });
 app.get("/liked-songs", async (_req, res) => {
+    const statusContext = statusBroadcaster.hasSubscribers()
+        ? statusBroadcaster.createContext("liked-songs")
+        : undefined;
     try {
         log("Fetching liked songs");
-        const allLikedSongs = await getAllLikedSongs();
+        const allLikedSongs = await getAllLikedSongs(statusContext);
         log(`Fetched ${allLikedSongs.length} liked songs`);
         res.json(allLikedSongs);
     }
     catch (error) {
         log(`Error fetching liked songs: ${error}`);
+        if (statusContext && statusBroadcaster.hasSubscribers()) {
+            statusBroadcaster.statusError(statusContext, {
+                message: formatSpotifyError(error),
+            });
+        }
         res.status(500).send(`Error: ${error.message}`);
     }
 });
 app.get("/generate-playlists", async (req, res) => {
+    const statusContext = statusBroadcaster.hasSubscribers()
+        ? statusBroadcaster.createContext("generate-playlists")
+        : undefined;
     try {
         log("Generating playlists");
-        const likedSongs = await getAllLikedSongs();
+        const likedSongs = await getAllLikedSongs(statusContext);
         const selectedModel = typeof req.query.model === "string" ? req.query.model : undefined;
+        if (statusContext && statusBroadcaster.hasSubscribers()) {
+            statusBroadcaster.geminiStart(statusContext, {
+                model: selectedModel ?? geminiDefaultModelName,
+                label: "Gerando playlists com Gemini…",
+            });
+        }
         const playlists = await generateOrLoadPlaylists(likedSongs, selectedModel);
+        broadcastPlaylistSongs(playlists, statusContext);
+        if (statusContext && statusBroadcaster.hasSubscribers()) {
+            statusBroadcaster.geminiComplete(statusContext, {
+                totalPlaylists: playlists.length,
+                label: "Playlists prontas!",
+            });
+        }
         await fs.writeFile(savedPlaylistsPath, JSON.stringify(playlists, null, 2));
         log(`Generated ${playlists.length} playlists and saved to file`);
         res.json(playlists);
     }
     catch (error) {
         log(`Error generating playlists: ${error}`);
+        if (statusContext && statusBroadcaster.hasSubscribers()) {
+            statusBroadcaster.statusError(statusContext, {
+                message: formatSpotifyError(error),
+            });
+        }
         res.status(500).send(`Error: ${error.message}`);
     }
 });
+app.get("/genre-playlists", async (_req, res) => {
+    const statusContext = statusBroadcaster.hasSubscribers()
+        ? statusBroadcaster.createContext("genre-playlists")
+        : undefined;
+    try {
+        await refreshTokenIfNeeded();
+        if (statusContext && statusBroadcaster.hasSubscribers()) {
+            statusBroadcaster.statusMessage(statusContext, {
+                message: "Organizando músicas curtidas por gênero…",
+            });
+        }
+        const playlists = await generateGenrePlaylists(statusContext);
+        const totalSongs = playlists.reduce((sum, playlist) => sum + playlist.count, 0);
+        res.json({
+            playlists,
+            summary: {
+                totalPlaylists: playlists.length,
+                totalSongs,
+            },
+        });
+    }
+    catch (error) {
+        log(`Error generating genre playlists: ${error}`);
+        if (statusContext && statusBroadcaster.hasSubscribers()) {
+            statusBroadcaster.statusError(statusContext, {
+                message: formatSpotifyError(error),
+            });
+        }
+        res.status(500).json({ error: error.message });
+    }
+});
 async function findTrackUris(songs) {
-    const batchSize = 20; // Spotify allows up to 20 tracks per request
+    const batchSize = 5; // keep requests gentle to avoid rate limiting
+    const delayBetweenSongsMs = 120;
     const batches = [];
     for (let i = 0; i < songs.length; i += batchSize) {
         batches.push(songs.slice(i, i + batchSize));
     }
-    const results = await Promise.all(batches.map(async (batch) => {
-        return requestQueue.add(async () => {
-            const uris = await Promise.all(batch.map(async (song) => {
-                try {
-                    // First, try to find the exact song
-                    const exactSearch = await spotifyApi.searchTracks(`track:${song.title} artist:${song.artist}`);
-                    if (exactSearch.body.tracks?.items.length ?? 0 > 0) {
-                        log(`Found exact track: ${song.title} by ${song.artist}`);
-                        return exactSearch.body.tracks?.items[0].uri;
-                    }
-                    // If exact song not found, search for the artist's top tracks
-                    log(`Could not find exact track: ${song.title} by ${song.artist} Searching for artist: ${song.artist}`);
-                    const artistSearch = await spotifyApi.searchArtists(song.artist);
-                    if (artistSearch.body.artists?.items.length ?? 0 > 0) {
-                        const artistId = artistSearch.body.artists.items[0].id;
-                        const topTracks = await spotifyApi.getArtistTopTracks(artistId, "US");
-                        if (topTracks.body.tracks.length > 0) {
-                            // Randomly select one of the top 5 tracks (or fewer if there aren't 5)
-                            const randomIndex = Math.floor(Math.random() * Math.min(5, topTracks.body.tracks.length));
-                            log(`Found track for artist: ${song.artist}`);
-                            return topTracks.body.tracks[randomIndex].uri;
+    const trackResults = [];
+    for (const batch of batches) {
+        const uris = await requestQueue.add(async () => {
+            const batchUris = [];
+            for (let index = 0; index < batch.length; index += 1) {
+                const song = batch[index];
+                const uri = await exponentialBackoff(async () => {
+                    try {
+                        const exactSearch = await spotifyApi.searchTracks(`track:${song.title} artist:${song.artist}`);
+                        if ((exactSearch.body.tracks?.items.length ?? 0) > 0) {
+                            log(`Found exact track: ${song.title} by ${song.artist}`);
+                            return exactSearch.body.tracks.items[0].uri;
                         }
+                        log(`Could not find exact track: ${song.title} by ${song.artist} Searching for artist: ${song.artist}`);
+                        const artistSearch = await spotifyApi.searchArtists(song.artist);
+                        if ((artistSearch.body.artists?.items.length ?? 0) > 0) {
+                            const artistId = artistSearch.body.artists.items[0].id;
+                            const topTracks = await spotifyApi.getArtistTopTracks(artistId, "US");
+                            if (topTracks.body.tracks.length > 0) {
+                                const randomIndex = Math.floor(Math.random() * Math.min(5, topTracks.body.tracks.length));
+                                log(`Found track for artist: ${song.artist}`);
+                                return topTracks.body.tracks[randomIndex].uri;
+                            }
+                        }
+                        log(`No tracks found for artist: ${song.artist}`);
+                        return undefined;
                     }
-                    log(`No tracks found for artist: ${song.artist}`);
-                    return undefined;
+                    catch (error) {
+                        if (error?.statusCode === 429) {
+                            throw error;
+                        }
+                        log(`Error searching for track "${song.title}" by ${song.artist}: ${formatSpotifyError(error)}`);
+                        return undefined;
+                    }
+                });
+                batchUris.push(uri);
+                if (index < batch.length - 1) {
+                    await sleep(delayBetweenSongsMs);
                 }
-                catch (error) {
-                    log(`Error searching for track "${song.title}" by ${song.artist}: ${formatSpotifyError(error)}`);
-                    return undefined;
-                }
-            }));
-            return uris;
+            }
+            return batchUris;
         });
-    }));
-    return results.flat();
+        trackResults.push(...uris);
+    }
+    return trackResults;
 }
 function sanitizePlaylistData(playlist) {
     return {
@@ -238,12 +382,60 @@ function sanitizePlaylistData(playlist) {
         songs: playlist.songs,
     };
 }
+function broadcastPlaylistSongs(playlists, statusContext) {
+    if (!statusContext || !statusBroadcaster.hasSubscribers()) {
+        return;
+    }
+    const items = Array.isArray(playlists) ? playlists : [playlists];
+    const limit = 160;
+    let sent = 0;
+    outer: for (let playlistIndex = 0; playlistIndex < items.length; playlistIndex += 1) {
+        const playlist = items[playlistIndex];
+        if (!playlist?.songs?.length) {
+            continue;
+        }
+        for (let songIndex = 0; songIndex < playlist.songs.length; songIndex += 1) {
+            const song = playlist.songs[songIndex];
+            if (!song?.title || !song?.artist) {
+                continue;
+            }
+            statusBroadcaster.geminiSong(statusContext, {
+                title: song.title,
+                artist: song.artist,
+                country: song.country,
+                playlist: playlist.name,
+                playlistIndex: playlistIndex + 1,
+                position: songIndex + 1,
+            });
+            sent += 1;
+            if (sent >= limit) {
+                break outer;
+            }
+        }
+    }
+}
 app.get("/preview-playlists", async (_req, res) => {
+    const statusContext = statusBroadcaster.hasSubscribers()
+        ? statusBroadcaster.createContext("preview")
+        : undefined;
     try {
         await refreshTokenIfNeeded();
         log("Fetching all playlists for preview");
         const modelName = typeof _req.query.model === "string" ? _req.query.model : undefined;
-        const playlists = await loadOrGeneratePlaylistsForPreview(modelName);
+        if (statusContext && statusBroadcaster.hasSubscribers()) {
+            statusBroadcaster.geminiStart(statusContext, {
+                model: modelName ?? geminiDefaultModelName,
+                label: "Gerando playlists surpresa…",
+            });
+        }
+        const playlists = await loadOrGeneratePlaylistsForPreview(modelName, statusContext);
+        broadcastPlaylistSongs(playlists, statusContext);
+        if (statusContext && statusBroadcaster.hasSubscribers()) {
+            statusBroadcaster.geminiComplete(statusContext, {
+                totalPlaylists: playlists.length,
+                label: "Playlists surpresa prontas!",
+            });
+        }
         const createdPlaylistIds = [];
         const previewPayload = [];
         for (const playlist of playlists) {
@@ -305,10 +497,18 @@ app.get("/preview-playlists", async (_req, res) => {
     catch (error) {
         const errorMessage = formatSpotifyError(error);
         log(`Error creating preview playlists:\n${errorMessage}`);
+        if (statusContext && statusBroadcaster.hasSubscribers()) {
+            statusBroadcaster.statusError(statusContext, {
+                message: errorMessage,
+            });
+        }
         res.status(500).json({ error: errorMessage });
     }
 });
 app.post("/create-custom-playlist", async (req, res) => {
+    const statusContext = statusBroadcaster.hasSubscribers()
+        ? statusBroadcaster.createContext("custom")
+        : undefined;
     try {
         await refreshTokenIfNeeded();
         const userPrompt = typeof req.body.prompt === "string" ? req.body.prompt.trim() : "";
@@ -317,8 +517,22 @@ app.post("/create-custom-playlist", async (req, res) => {
         }
         log(`Received custom playlist prompt: ${userPrompt}`);
         const modelName = typeof req.body.model === "string" ? req.body.model.trim() : undefined;
+        if (statusContext && statusBroadcaster.hasSubscribers()) {
+            statusBroadcaster.geminiStart(statusContext, {
+                model: modelName ?? geminiDefaultModelName,
+                label: "Criando playlist personalizada…",
+                promptPreview: userPrompt.slice(0, 160),
+            });
+        }
         const customPlaylist = await generateCustomPlaylistWithGemini(userPrompt, modelName);
         const sanitizedPlaylist = sanitizePlaylistData(customPlaylist);
+        broadcastPlaylistSongs(sanitizedPlaylist, statusContext);
+        if (statusContext && statusBroadcaster.hasSubscribers()) {
+            statusBroadcaster.geminiComplete(statusContext, {
+                totalPlaylists: 1,
+                label: "Playlist personalizada pronta!",
+            });
+        }
         const trackUris = await findTrackUris(sanitizedPlaylist.songs);
         const validTrackUris = trackUris.filter((uri) => uri !== undefined);
         if (validTrackUris.length === 0) {
@@ -345,6 +559,11 @@ app.post("/create-custom-playlist", async (req, res) => {
     catch (error) {
         const errorMessage = formatSpotifyError(error);
         log(`Error creating custom playlist:\n${errorMessage}`);
+        if (statusContext && statusBroadcaster.hasSubscribers()) {
+            statusBroadcaster.statusError(statusContext, {
+                message: errorMessage,
+            });
+        }
         res.status(500).json({ error: errorMessage });
     }
 });
@@ -386,24 +605,51 @@ async function refreshTokenIfNeeded() {
         throw new Error("Failed to refresh token. Please log in again.");
     }
 }
-async function getAllLikedSongs() {
+async function getAllLikedSongs(statusContext) {
     let allTracks = [];
     let offset = 0;
     const limit = 50; // Spotify API allows a maximum of 50 tracks per request
     let total;
+    const shouldBroadcast = Boolean(statusContext && statusBroadcaster.hasSubscribers());
+    const maxBroadcast = 120;
+    let broadcastCount = 0;
+    let hasAnnounced = false;
     do {
         log(`Fetching liked songs: offset ${offset}`);
         const data = await spotifyApi.getMySavedTracks({ limit, offset });
         total = data.body.total;
+        if (shouldBroadcast && !hasAnnounced) {
+            statusBroadcaster.likedStart(statusContext, { total });
+            hasAnnounced = true;
+        }
         const tracks = data.body.items.map((item) => ({
             name: item.track.name,
-            artist: item.track.artists[0].name,
+            artist: item.track.artists[0]?.name ?? "",
             id: item.track.id,
+            artistId: item.track.artists[0]?.id,
+            artistIds: item.track.artists.map((artist) => artist.id).filter(Boolean),
         }));
-        allTracks = allTracks.concat(tracks);
+        tracks.forEach((track, index) => {
+            allTracks.push(track);
+            if (shouldBroadcast && broadcastCount < maxBroadcast) {
+                statusBroadcaster.likedSong(statusContext, {
+                    name: track.name,
+                    artist: track.artist,
+                    id: track.id,
+                    index: offset + index + 1,
+                    total,
+                });
+                broadcastCount += 1;
+            }
+        });
         offset += limit;
         log(`Fetched ${allTracks.length}/${total} liked songs`);
     } while (offset < total);
+    if (shouldBroadcast) {
+        statusBroadcaster.likedComplete(statusContext, {
+            total: allTracks.length,
+        });
+    }
     return allTracks;
 }
 async function generateOrLoadPlaylists(likedSongs, modelName) {
@@ -506,7 +752,104 @@ async function generatePlaylistsWithGemini(likedSongs, modelName) {
   `;
     return generateGeminiJson(prompt, modelName);
 }
-async function loadOrGeneratePlaylistsForPreview(modelName) {
+async function generateGenrePlaylists(statusContext) {
+    const likedSongs = await getAllLikedSongs(statusContext);
+    if (!likedSongs.length) {
+        return [];
+    }
+    const allArtistIds = likedSongs
+        .flatMap((song) => song.artistIds ?? (song.artistId ? [song.artistId] : []))
+        .filter((id) => Boolean(id));
+    const uniqueArtistIds = Array.from(new Set(allArtistIds));
+    if (statusContext && statusBroadcaster.hasSubscribers()) {
+        statusBroadcaster.genreStart(statusContext, {
+            totalSongs: likedSongs.length,
+            totalArtists: uniqueArtistIds.length,
+        });
+    }
+    const artistGenreMap = new Map();
+    const artistBatchSize = 50;
+    let processedArtists = 0;
+    for (let i = 0; i < uniqueArtistIds.length; i += artistBatchSize) {
+        const batch = uniqueArtistIds.slice(i, i + artistBatchSize);
+        try {
+            const response = await requestQueue.add(() => exponentialBackoff(() => spotifyApi.getArtists(batch)));
+            const artists = response.body.artists ?? [];
+            artists.forEach((artist) => {
+                if (artist?.id) {
+                    artistGenreMap.set(artist.id, artist.genres ?? []);
+                }
+            });
+        }
+        catch (error) {
+            log(`Error fetching artist genres for batch: ${formatSpotifyError(error)}`);
+        }
+        processedArtists += batch.length;
+        if (statusContext && statusBroadcaster.hasSubscribers()) {
+            statusBroadcaster.genreProgress(statusContext, {
+                stage: "artists",
+                processed: processedArtists,
+                total: uniqueArtistIds.length,
+            });
+        }
+        await sleep(150);
+    }
+    const groups = new Map();
+    likedSongs.forEach((song) => {
+        const primaryArtistId = song.artistId ?? song.artistIds?.[0];
+        const genres = (primaryArtistId && artistGenreMap.get(primaryArtistId)) || [];
+        const { key, label } = resolveGenreGroup(genres);
+        if (!groups.has(key)) {
+            groups.set(key, {
+                label,
+                songs: [],
+            });
+        }
+        const group = groups.get(key);
+        group.songs.push({
+            title: song.name,
+            artist: song.artist,
+        });
+    });
+    if (statusContext && statusBroadcaster.hasSubscribers()) {
+        statusBroadcaster.genreProgress(statusContext, {
+            stage: "grouping",
+            processed: likedSongs.length,
+            total: likedSongs.length,
+        });
+    }
+    const playlists = Array.from(groups.entries())
+        .map(([key, value]) => {
+        const count = value.songs.length;
+        const genreName = value.label;
+        const name = `${genreName} • Curtidas`;
+        const description = createGenreDescription(genreName, count);
+        return {
+            key,
+            genre: genreName,
+            name,
+            description,
+            count,
+            songs: value.songs,
+        };
+    })
+        .sort((a, b) => b.count - a.count || a.genre.localeCompare(b.genre));
+    if (statusContext && statusBroadcaster.hasSubscribers()) {
+        const sampleSongs = playlists
+            .flatMap((playlist) => playlist.songs
+            .slice(0, 3)
+            .map((song) => `${song.title} — ${song.artist}`))
+            .filter(Boolean)
+            .slice(0, 80);
+        statusBroadcaster.genreComplete(statusContext, {
+            totalPlaylists: playlists.length,
+            totalSongs: likedSongs.length,
+            songs: sampleSongs,
+        });
+    }
+    return playlists;
+}
+async function loadOrGeneratePlaylistsForPreview(modelName, statusContext) {
     if (!modelName) {
         try {
             log("Attempting to load saved playlists for preview");
@@ -523,7 +866,7 @@ async function loadOrGeneratePlaylistsForPreview(modelName) {
             log("saved_playlists.json not found. Generating new playlists for preview.");
         }
     }
-    const likedSongs = await getAllLikedSongs();
+    const likedSongs = await getAllLikedSongs(statusContext);
     const playlists = await generatePlaylistsWithGemini(likedSongs, modelName);
     if (!modelName) {
         await fs.writeFile(savedPlaylistsPath, JSON.stringify(playlists, null, 2));

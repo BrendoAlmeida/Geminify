@@ -62,12 +62,26 @@ const liveStatus = document.getElementById("liveStatus");
 const liveStatusLabel = document.querySelector(".live-status__label");
 const statusSteps = document.getElementById("statusSteps");
 const tickerInner = document.getElementById("tickerInner");
+const groupGenresButton = document.getElementById("groupGenresButton");
+const genreStatus = document.getElementById("genreStatus");
+const genreResults = document.getElementById("genreResults");
 
 const MODEL_STORAGE_KEY = "claudify:selectedGeminiModel";
 let availableModels = [];
 let statusTimeouts = [];
 let tickerRevealInterval = null;
 let currentTickerSongs = [];
+let statusSource = null;
+let statusReconnectTimer = null;
+
+const tickerState = {
+  mode: "idle",
+  requestId: null,
+  operation: null,
+  lastPlaylist: null,
+};
+
+const MAX_TICKER_SONGS = 60;
 
 const placeholderSongs = [
   "Neon Skyline — Midnight Arcade",
@@ -94,6 +108,12 @@ const loadingSequences = {
     "Curating the perfect sequence",
     "Matching tracks on Spotify",
     "Publishing your playlist",
+  ],
+  genre: [
+    "Carregando músicas curtidas",
+    "Coletando gêneros dos artistas",
+    "Montando playlists por estilo",
+    "Pronto para ouvir",
   ],
 };
 
@@ -138,37 +158,46 @@ function updateStatusStep(index) {
   }
 }
 
-function setTickerSongs(songs, { animate = true } = {}) {
+function setTickerSongs(
+  songs,
+  { animate = true, allowPlaceholder = true } = {}
+) {
   if (!tickerInner) return;
+
+  const wasAnimating = tickerInner.classList.contains("ticker__inner--animate");
   tickerInner.classList.remove("ticker__inner--animate");
   tickerInner.innerHTML = "";
 
-  const source = songs && songs.length ? songs : placeholderSongs;
+  const source = songs && songs.length ? songs : allowPlaceholder ? placeholderSongs : [];
   if (!source.length) {
     const span = document.createElement("span");
     span.className = "ticker__item";
     span.textContent = "Waiting for tracks…";
     tickerInner.append(span);
-    return;
+  } else {
+    const display = [];
+    const targetLength = Math.max(8, source.length * 2);
+    let index = 0;
+    while (display.length < targetLength) {
+      display.push(source[index % source.length]);
+      index += 1;
+    }
+
+    display.forEach((title) => {
+      const span = document.createElement("span");
+      span.className = "ticker__item";
+      span.textContent = title;
+      tickerInner.append(span);
+    });
   }
 
-  const display = [];
-  const targetLength = Math.max(8, source.length * 2);
-  let index = 0;
-  while (display.length < targetLength) {
-    display.push(source[index % source.length]);
-    index += 1;
-  }
+  const shouldAnimate =
+    tickerInner.childElementCount && (animate || (wasAnimating && !animate));
 
-  display.forEach((title) => {
-    const span = document.createElement("span");
-    span.className = "ticker__item";
-    span.textContent = title;
-    tickerInner.append(span);
-  });
-
-  if (animate && tickerInner.childElementCount) {
-    void tickerInner.offsetWidth; // restart animation
+  if (shouldAnimate) {
+    if (animate) {
+      void tickerInner.offsetWidth; // restart animation intentionally
+    }
     tickerInner.classList.add("ticker__inner--animate");
   }
 }
@@ -176,6 +205,60 @@ function setTickerSongs(songs, { animate = true } = {}) {
 function startPlaceholderTicker() {
   currentTickerSongs = [];
   setTickerSongs(placeholderSongs);
+}
+
+function clearTickerMode() {
+  tickerState.mode = "idle";
+  tickerState.requestId = null;
+  tickerState.operation = null;
+  tickerState.lastPlaylist = null;
+}
+
+function switchTickerMode(
+  mode,
+  { requestId = null, operation = null, label, allowPlaceholder = false } = {}
+) {
+  tickerState.mode = mode;
+  tickerState.requestId = requestId;
+  tickerState.operation = operation;
+  tickerState.lastPlaylist = null;
+  currentTickerSongs = [];
+  setTickerSongs([], { animate: false, allowPlaceholder });
+  if (label) {
+    setLiveStatusLabel(label);
+  }
+}
+
+function isCurrentRequest(expectedMode, requestId) {
+  if (expectedMode && tickerState.mode !== expectedMode) {
+    return false;
+  }
+  if (requestId && tickerState.requestId && tickerState.requestId !== requestId) {
+    return false;
+  }
+  return true;
+}
+
+function parseEventData(event) {
+  if (!event || typeof event.data !== "string" || !event.data.length) {
+    return {};
+  }
+  try {
+    return JSON.parse(event.data);
+  } catch (error) {
+    console.warn("Failed to parse status event", error);
+    return {};
+  }
+}
+
+function addTickerSong(line, { animate = false } = {}) {
+  if (!line) return;
+  if (currentTickerSongs.includes(line)) return;
+  currentTickerSongs.push(line);
+  if (currentTickerSongs.length > MAX_TICKER_SONGS) {
+    currentTickerSongs = currentTickerSongs.slice(-MAX_TICKER_SONGS);
+  }
+  setTickerSongs(currentTickerSongs, { animate, allowPlaceholder: false });
 }
 
 function animateSongReveal(songs) {
@@ -211,6 +294,7 @@ function resetLiveStatus() {
     statusSteps.innerHTML = "";
   }
   currentTickerSongs = [];
+  clearTickerMode();
   if (tickerInner) {
     tickerInner.innerHTML = "";
     tickerInner.classList.remove("ticker__inner--animate");
@@ -221,6 +305,7 @@ function startLiveStatus(type) {
   if (!liveStatus) return;
   liveStatus.hidden = false;
   liveStatus.classList.remove("is-error");
+  tickerState.operation = type;
   const sequence = loadingSequences[type] || [];
   renderStatusSteps(sequence);
   clearStatusTimeouts();
@@ -239,8 +324,12 @@ function startLiveStatus(type) {
   );
 }
 
-function completeLiveStatus(songTitles) {
+function completeLiveStatus(songTitles, options = {}) {
   if (!liveStatus) return;
+  const { requestId, label } = options;
+  if (requestId && tickerState.requestId && tickerState.requestId !== requestId) {
+    return;
+  }
   clearStatusTimeouts();
   const items = statusSteps
     ? Array.from(statusSteps.querySelectorAll("li"))
@@ -249,28 +338,272 @@ function completeLiveStatus(songTitles) {
     item.classList.remove("is-active");
     item.classList.add("is-complete");
   });
-  setLiveStatusLabel("Playlists prontas!");
-  animateSongReveal(songTitles);
+  setLiveStatusLabel(label || "Playlists prontas!");
+
+  const incomingSongs = Array.isArray(songTitles)
+    ? songTitles.filter(Boolean)
+    : [];
+
+  if (!incomingSongs.length && currentTickerSongs.length) {
+    setTickerSongs(currentTickerSongs, { animate: true, allowPlaceholder: false });
+  } else if (incomingSongs.length) {
+    if (currentTickerSongs.length === 0) {
+      animateSongReveal(incomingSongs);
+    } else {
+      incomingSongs.forEach((song) => addTickerSong(song, { animate: false }));
+      setTickerSongs(currentTickerSongs, {
+        animate: true,
+        allowPlaceholder: false,
+      });
+    }
+  } else {
+    setTickerSongs([], { animate: false, allowPlaceholder: false });
+  }
+
   setTimeout(() => {
     if (liveStatus) {
       liveStatus.hidden = true;
     }
+    clearTickerMode();
   }, 4500);
 }
 
-function failLiveStatus(message) {
+function failLiveStatus(message, options = {}) {
   if (!liveStatus) return;
+  const { requestId } = options;
+  if (requestId && tickerState.requestId && tickerState.requestId !== requestId) {
+    return;
+  }
   clearStatusTimeouts();
   stopTickerReveal();
   liveStatus.classList.add("is-error");
   setLiveStatusLabel(message || "Algo deu errado");
-  setTickerSongs([], { animate: false });
+  setTickerSongs([], { animate: false, allowPlaceholder: true });
   setTimeout(() => {
     if (liveStatus) {
       liveStatus.hidden = true;
       liveStatus.classList.remove("is-error");
     }
+    clearTickerMode();
   }, 5000);
+}
+
+function handleLikedStart(event) {
+  const data = parseEventData(event);
+  switchTickerMode("liked", {
+    requestId: data.requestId || null,
+    operation: data.operation || tickerState.operation,
+    label: "Carregando músicas curtidas…",
+  });
+}
+
+function handleLikedSong(event) {
+  const data = parseEventData(event);
+  const requestId = data.requestId || null;
+  if (!isCurrentRequest("liked", requestId)) {
+    if (!tickerState.requestId) {
+      switchTickerMode("liked", {
+        requestId,
+        operation: data.operation || tickerState.operation,
+        label: "Carregando músicas curtidas…",
+      });
+    } else {
+      return;
+    }
+  }
+
+  const line =
+    data.name && data.artist
+      ? `${data.name} — ${data.artist}`
+      : data.title && data.artist
+      ? `${data.title} — ${data.artist}`
+      : undefined;
+  addTickerSong(line, { animate: false });
+}
+
+function handleLikedComplete(event) {
+  const data = parseEventData(event);
+  if (!isCurrentRequest("liked", data.requestId || null)) {
+    return;
+  }
+
+  if (typeof data.total === "number" && Number.isFinite(data.total)) {
+    setLiveStatusLabel(`Músicas curtidas carregadas (${data.total})`);
+  } else {
+    setLiveStatusLabel("Músicas curtidas carregadas");
+  }
+
+  if (currentTickerSongs.length) {
+    setTickerSongs(currentTickerSongs, { animate: true, allowPlaceholder: false });
+  }
+}
+
+function handleGenreStart(event) {
+  const data = parseEventData(event);
+  switchTickerMode("genre", {
+    requestId: data.requestId || null,
+    operation: data.operation || tickerState.operation,
+    label: data.label || "Organizando por gênero…",
+    allowPlaceholder: true,
+  });
+
+  if (typeof data.totalSongs === "number" && Number.isFinite(data.totalSongs)) {
+    setLiveStatusLabel(`Analisando ${data.totalSongs} músicas curtidas…`);
+  }
+}
+
+function handleGenreProgress(event) {
+  const data = parseEventData(event);
+  if (!isCurrentRequest("genre", data.requestId || null)) {
+    return;
+  }
+
+  const stage = data.stage;
+  const processed = typeof data.processed === "number" ? data.processed : undefined;
+  const total = typeof data.total === "number" ? data.total : undefined;
+
+  if (stage === "artists" && processed !== undefined && total !== undefined) {
+    setLiveStatusLabel(`Coletando gêneros (${processed}/${total} artistas)`);
+  } else if (stage === "grouping" && processed !== undefined && total !== undefined) {
+    setLiveStatusLabel(`Montando playlists (${processed}/${total} músicas)`);
+  }
+
+  if (Array.isArray(data.songs)) {
+    data.songs
+      .filter(Boolean)
+      .forEach((line) => addTickerSong(line, { animate: false }));
+  } else if (data.sampleSong) {
+    addTickerSong(data.sampleSong, { animate: false });
+  }
+}
+
+function handleGenreComplete(event) {
+  const data = parseEventData(event);
+  if (!isCurrentRequest("genre", data.requestId || null)) {
+    return;
+  }
+
+  const songs = Array.isArray(data.songs) ? data.songs : undefined;
+  completeLiveStatus(songs, {
+    requestId: data.requestId || null,
+    label: data.label || "Playlists por gênero prontas!",
+  });
+
+  if (genreStatus && typeof data.totalPlaylists === "number") {
+    const totalSongs = typeof data.totalSongs === "number" ? data.totalSongs : undefined;
+    const summaryText = totalSongs
+      ? `Pronto! ${data.totalPlaylists} playlists por gênero com ${totalSongs} músicas.`
+      : `Pronto! ${data.totalPlaylists} playlists por gênero.`;
+    showStatus(genreStatus, summaryText, "success");
+  }
+}
+
+function handleGeminiStart(event) {
+  const data = parseEventData(event);
+  switchTickerMode("gemini", {
+    requestId: data.requestId || null,
+    operation: data.operation || tickerState.operation,
+    label: data.label || "Gemini sugerindo faixas…",
+  });
+}
+
+function handleGeminiSong(event) {
+  const data = parseEventData(event);
+  if (!isCurrentRequest("gemini", data.requestId || null)) {
+    return;
+  }
+
+  const line =
+    data.title && data.artist
+      ? `${data.title} — ${data.artist}`
+      : data.name && data.artist
+      ? `${data.name} — ${data.artist}`
+      : undefined;
+  addTickerSong(line, { animate: false });
+
+  if (data.playlist && tickerState.lastPlaylist !== data.playlist) {
+    tickerState.lastPlaylist = data.playlist;
+    setLiveStatusLabel(`Gemini sugerindo “${data.playlist}”`);
+  }
+}
+
+function handleGeminiComplete(event) {
+  const data = parseEventData(event);
+  if (!isCurrentRequest("gemini", data.requestId || null)) {
+    return;
+  }
+  const songs = Array.isArray(data.songs) ? data.songs : undefined;
+  completeLiveStatus(songs, {
+    requestId: data.requestId || null,
+    label: data.label,
+  });
+}
+
+function handleStatusMessage(event) {
+  const data = parseEventData(event);
+  if (
+    data.requestId &&
+    tickerState.requestId &&
+    tickerState.requestId !== data.requestId
+  ) {
+    return;
+  }
+  if (typeof data.message === "string" && data.message.length) {
+    setLiveStatusLabel(data.message);
+  }
+}
+
+function handleStatusError(event) {
+  const data = parseEventData(event);
+  if (!data || !data.message) {
+    return;
+  }
+  failLiveStatus(data.message, { requestId: data.requestId || null });
+}
+
+function initStatusStream() {
+  if (typeof window === "undefined" || typeof EventSource === "undefined") {
+    return;
+  }
+
+  if (statusSource) {
+    statusSource.close();
+    statusSource = null;
+  }
+
+  statusSource = new EventSource("/status-stream");
+
+  statusSource.addEventListener("open", () => {
+    if (statusReconnectTimer) {
+      clearTimeout(statusReconnectTimer);
+      statusReconnectTimer = null;
+    }
+  });
+
+  statusSource.addEventListener("error", () => {
+    if (statusSource) {
+      statusSource.close();
+      statusSource = null;
+    }
+    if (!statusReconnectTimer) {
+      statusReconnectTimer = setTimeout(() => {
+        statusReconnectTimer = null;
+        initStatusStream();
+      }, 4000);
+    }
+  });
+
+  statusSource.addEventListener("liked-start", handleLikedStart);
+  statusSource.addEventListener("liked-song", handleLikedSong);
+  statusSource.addEventListener("liked-complete", handleLikedComplete);
+  statusSource.addEventListener("genre-start", handleGenreStart);
+  statusSource.addEventListener("genre-progress", handleGenreProgress);
+  statusSource.addEventListener("genre-complete", handleGenreComplete);
+  statusSource.addEventListener("gemini-start", handleGeminiStart);
+  statusSource.addEventListener("gemini-song", handleGeminiSong);
+  statusSource.addEventListener("gemini-complete", handleGeminiComplete);
+  statusSource.addEventListener("status-message", handleStatusMessage);
+  statusSource.addEventListener("status-error", handleStatusError);
 }
 
 const formatTokenLimit = (value) =>
@@ -440,6 +773,76 @@ function prependPlaylist(playlist) {
   }
 }
 
+function renderGenrePlaylists(playlists) {
+  if (!genreResults) return;
+  genreResults.innerHTML = "";
+
+  if (!Array.isArray(playlists) || playlists.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "status";
+    empty.textContent = "Nenhuma música curtida para agrupar ainda.";
+    genreResults.append(empty);
+    return;
+  }
+
+  playlists.forEach((playlist, index) => {
+    const card = document.createElement("article");
+    card.className = "genre-card";
+
+    const header = document.createElement("div");
+    header.className = "genre-card__header";
+
+    const title = document.createElement("h3");
+    title.className = "genre-card__title";
+    title.textContent = playlist?.name || playlist?.genre || "Playlist por gênero";
+
+    const countLabel = document.createElement("span");
+    countLabel.className = "genre-card__count";
+    const count = typeof playlist?.count === "number" ? playlist.count : playlist?.songs?.length || 0;
+    countLabel.textContent = `${count} ${count === 1 ? "música" : "músicas"}`;
+
+    header.append(title, countLabel);
+
+    const description = document.createElement("p");
+    description.className = "genre-card__description";
+    description.textContent = playlist?.description || "Coleção criada a partir das suas músicas curtidas.";
+
+    const details = document.createElement("details");
+    if (index === 0) {
+      details.open = true;
+    }
+
+    const summary = document.createElement("summary");
+    summary.textContent = `Ver músicas (${count})`;
+
+    const list = document.createElement("ul");
+    list.className = "genre-card__list";
+
+    const songs = Array.isArray(playlist?.songs) ? playlist.songs : [];
+    const renderLimit = 150;
+    songs.slice(0, renderLimit).forEach((song, songIndex) => {
+      if (!song) return;
+      const li = document.createElement("li");
+      const titleText = song?.title || song?.name || `Faixa ${songIndex + 1}`;
+      const artistText = song?.artist || song?.artistName || "Artista desconhecido";
+      li.textContent = `${titleText} — ${artistText}`;
+      list.append(li);
+    });
+
+    if (songs.length > renderLimit) {
+      const more = document.createElement("li");
+      more.className = "genre-card__list-more";
+      more.textContent = `… e mais ${songs.length - renderLimit} músicas`;
+      list.append(more);
+    }
+
+    details.append(summary, list);
+
+    card.append(header, description, details);
+    genreResults.append(card);
+  });
+}
+
 async function handlePreviewGeneration() {
   if (!previewButton) return;
   previewButton.disabled = true;
@@ -551,6 +954,97 @@ async function handleCustomSubmit(event) {
   }
 }
 
+async function handleGenreGrouping() {
+  if (!groupGenresButton) return;
+  const originalLabel = groupGenresButton.textContent;
+  groupGenresButton.disabled = true;
+  groupGenresButton.textContent = "Organizando...";
+
+  if (genreStatus) {
+    showStatus(genreStatus, "Agrupando suas músicas curtidas...", "");
+  }
+
+  resetLiveStatus();
+  startLiveStatus("genre");
+  switchTickerMode("genre", {
+    requestId: null,
+    operation: "genre",
+    label: "Organizando por gênero…",
+    allowPlaceholder: true,
+  });
+
+  if (genreResults) {
+    const loader = createLoader("Organizando por gênero");
+    genreResults.innerHTML = "";
+    genreResults.append(loader);
+  }
+
+  try {
+    const response = await fetch("/genre-playlists");
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      throw Object.assign(
+        new Error(payload?.error || "Não foi possível agrupar por gênero."),
+        { status: response.status }
+      );
+    }
+
+    const data = await response.json();
+    const playlists = Array.isArray(data?.playlists) ? data.playlists : [];
+    renderGenrePlaylists(playlists);
+
+    const totalPlaylists = typeof data?.summary?.totalPlaylists === "number"
+      ? data.summary.totalPlaylists
+      : playlists.length;
+    const totalSongs = typeof data?.summary?.totalSongs === "number"
+      ? data.summary.totalSongs
+      : playlists.reduce((sum, playlist) => sum + (playlist?.songs?.length || 0), 0);
+
+    if (genreStatus) {
+      showStatus(
+        genreStatus,
+        `Pronto! ${totalPlaylists} playlists por gênero com ${totalSongs} músicas.`,
+        "success"
+      );
+    }
+
+    const sampleSongs = playlists
+      .flatMap((playlist) =>
+        (playlist?.songs || [])
+          .slice(0, 3)
+          .map((song) =>
+            song?.title && song?.artist
+              ? `${song.title} — ${song.artist}`
+              : song?.name && song?.artist
+              ? `${song.name} — ${song.artist}`
+              : undefined
+          )
+      )
+      .filter(Boolean)
+      .slice(0, 80);
+
+    completeLiveStatus(sampleSongs, {
+      label: "Playlists por gênero prontas!",
+    });
+  } catch (error) {
+    const message =
+      error?.status === 401
+        ? "Entre com o Spotify para continuar."
+        : error?.message || "Não foi possível agrupar por gênero.";
+    if (genreStatus) {
+      showStatus(genreStatus, message, "error");
+    }
+    if (genreResults) {
+      genreResults.innerHTML = "";
+    }
+    failLiveStatus(message, { requestId: tickerState.requestId });
+  } finally {
+    groupGenresButton.disabled = false;
+    groupGenresButton.textContent = originalLabel;
+  }
+}
+
+groupGenresButton?.addEventListener("click", handleGenreGrouping);
 previewButton?.addEventListener("click", handlePreviewGeneration);
 customForm?.addEventListener("submit", handleCustomSubmit);
 refreshModelsButton?.addEventListener("click", () => loadGeminiModels());
@@ -566,4 +1060,5 @@ modelSelect?.addEventListener("change", () => {
   updateModelStatus(findModel(selected));
 });
 
+initStatusStream();
 loadGeminiModels();

@@ -66,6 +66,20 @@
           <div id="formStatus" class="status" role="status" aria-live="polite"></div>
         </section>
 
+        <section class="panel panel--glass" aria-labelledby="genreTitle">
+          <div class="panel__header">
+            <h2 class="panel__title" id="genreTitle">Organize liked songs by genre</h2>
+            <p class="panel__description">
+              Build smart collections from every track you&apos;ve liked. We&apos;ll gather your saved songs, detect dominant styles, and shape ready-to-save playlists per genre.
+            </p>
+          </div>
+          <div class="genre-actions">
+            <button class="btn btn--primary" id="groupGenresButton">Group liked songs by genre</button>
+            <p id="genreStatus" class="status" role="status" aria-live="polite"></p>
+          </div>
+          <div id="genreResults" class="genre-grid" aria-live="polite"></div>
+        </section>
+
         <section class="panel panel--glass" aria-labelledby="resultsTitle">
           <div class="panel__header">
             <h2 class="panel__title" id="resultsTitle">Your generated playlists</h2>

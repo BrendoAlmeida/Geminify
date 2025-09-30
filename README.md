@@ -32,6 +32,7 @@ Create custom playlists from text prompts:
 - One-click Spotify login paired with inline playlist previews
 - Real-time status updates while Gemini generates or Spotify builds your mixes
 - On-page Gemini model picker so you can swap between Flash, Pro, or tuned variants without touching the backend
+- A dedicated hub that clusters every liked track by genre so you can explore your library style by style before saving to Spotify
 
 ## How It Works
 
