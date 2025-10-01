@@ -22,120 +22,255 @@
   <body>
     <canvas id="background" aria-hidden="true"></canvas>
     <div class="page-shell">
-      <header class="hero">
-        <div class="hero__content">
-          <h1 class="hero__title">Craft soundscapes with AI + Spotify</h1>
-          <p class="hero__subtitle">
-            Spin up immersive playlists with a tap or describe the vibe and let Gemini curate a bespoke mix in seconds.
-          </p>
-          <div class="hero__actions">
-            <a class="btn btn--primary" href="/login" id="loginButton">Log in with Spotify</a>
-            <button class="btn btn--ghost" id="previewButton">Generate Random Playlists</button>
-          </div>
-        </div>
-      </header>
+      <nav class="view-nav" aria-label="Toggle creation mode">
+        <button class="view-nav__button is-active" type="button" data-view-target="playlists">
+          <span class="view-nav__label">Playlist generator</span>
+          <span class="view-nav__hint">Create or enhance mixes with Gemini + Spotify</span>
+        </button>
+        <button class="view-nav__button" type="button" data-view-target="chat">
+          <span class="view-nav__label">Idea lounge</span>
+          <span class="view-nav__hint">Chat with the model and capture tags</span>
+        </button>
+      </nav>
 
-      <main class="content">
-        <section class="panel panel--glass" aria-labelledby="customPromptTitle">
-          <div class="panel__header">
-            <h2 class="panel__title" id="customPromptTitle">Dream up a custom mix</h2>
-            <p class="panel__description">
-              Describe a mood, scene, story, or genre-bending idea. Gemini will weave 20+ tracks into a cohesive set, then we push it straight to your Spotify.
+      <div id="playlistsView" class="view view--active" role="region" aria-labelledby="playlistsViewTitle">
+        <header class="hero">
+          <div class="hero__content">
+            <h1 class="hero__title" id="playlistsViewTitle">Craft soundscapes with AI + Spotify</h1>
+            <p class="hero__subtitle">
+              Spin up immersive playlists with a tap or describe the vibe and let Gemini curate a bespoke mix in seconds.
             </p>
-          </div>
-          <div class="model-bar" aria-live="polite">
-            <div class="model-bar__top">
-              <label class="model-bar__label" for="modelSelect">Gemini model</label>
-              <button type="button" class="btn btn--ghost btn--compact" id="refreshModels">Refresh</button>
+            <div class="hero__actions">
+              <a class="btn btn--primary" href="/login" id="loginButton">Log in with Spotify</a>
+              <button class="btn btn--ghost" id="previewButton">Generate Random Playlists</button>
             </div>
-            <select id="modelSelect" class="model-bar__select" disabled>
-              <option>Loading models…</option>
-            </select>
-            <p id="modelStatus" class="model-bar__status">Connecting to Gemini…</p>
           </div>
-          <form id="customForm" class="prompt-form">
-            <textarea
-              id="customPrompt"
-              name="prompt"
-              rows="4"
-              placeholder="e.g. A neon-lit midnight drive through Tokyo blending synthwave, future funk, and vapor soul"
-              required
-            ></textarea>
-            <div class="playlist-upgrade" data-enhance>
-              <label class="playlist-upgrade__label" for="targetPlaylist">Improve an existing playlist (optional)</label>
-              <div class="playlist-upgrade__select-row">
-                <label class="playlist-upgrade__select-label" for="playlistSelect">Choose from your playlists</label>
-                <div class="playlist-upgrade__select-inline">
-                  <select
-                    id="playlistSelect"
-                    class="playlist-upgrade__select model-bar__select"
-                    aria-describedby="playlistSelectStatus"
-                  >
-                    <option value="">Loading playlists…</option>
-                  </select>
-                  <button
-                    type="button"
-                    class="btn btn--ghost btn--compact playlist-upgrade__refresh"
-                    id="refreshPlaylists"
-                    title="Atualizar playlists"
-                    aria-label="Atualizar lista de playlists"
-                  >
-                    Atualizar
-                  </button>
-                </div>
-                <p id="playlistSelectStatus" class="playlist-upgrade__hint status" data-select-status></p>
-              </div>
-              <input
-                id="targetPlaylist"
-                name="playlistId"
-                type="text"
-                class="playlist-upgrade__input"
-                placeholder="Paste a Spotify playlist link or ID"
-                autocomplete="off"
-              />
-              <p class="playlist-upgrade__hint">
-                We&apos;ll keep the playlist and add fresh tracks from your prompt. Leave blank to create a brand-new mix.
+        </header>
+
+        <main class="content">
+          <section class="panel panel--glass" aria-labelledby="customPromptTitle">
+            <div class="panel__header">
+              <h2 class="panel__title" id="customPromptTitle">Dream up a custom mix</h2>
+              <p class="panel__description">
+                Describe a mood, scene, story, or genre-bending idea. Gemini will weave 20+ tracks into a cohesive set, then we push it straight to your Spotify.
               </p>
             </div>
-            <button type="submit" class="btn btn--primary">Create Custom Playlist</button>
-          </form>
-          <div id="formStatus" class="status" role="status" aria-live="polite"></div>
-        </section>
+            <div class="model-bar" aria-live="polite">
+              <div class="model-bar__top">
+                <label class="model-bar__label" for="modelSelect">Gemini model</label>
+                <button type="button" class="btn btn--ghost btn--compact" id="refreshModels">Refresh</button>
+              </div>
+              <select id="modelSelect" class="model-bar__select" disabled>
+                <option>Loading models…</option>
+              </select>
+              <p id="modelStatus" class="model-bar__status">Connecting to Gemini…</p>
+            </div>
+            <form id="customForm" class="prompt-form">
+              <textarea
+                id="customPrompt"
+                name="prompt"
+                rows="4"
+                placeholder="e.g. A neon-lit midnight drive through Tokyo blending synthwave, future funk, and vapor soul"
+                required
+              ></textarea>
+              <div class="playlist-upgrade" data-enhance>
+                <label class="playlist-upgrade__label" for="targetPlaylist">Improve an existing playlist (optional)</label>
+                <div class="playlist-upgrade__select-row">
+                  <label class="playlist-upgrade__select-label" for="playlistSelect">Choose from your playlists</label>
+                  <div class="playlist-upgrade__select-inline">
+                    <select
+                      id="playlistSelect"
+                      class="playlist-upgrade__select model-bar__select"
+                      aria-describedby="playlistSelectStatus"
+                    >
+                      <option value="">Loading playlists…</option>
+                    </select>
+                    <button
+                      type="button"
+                      class="btn btn--ghost btn--compact playlist-upgrade__refresh"
+                      id="refreshPlaylists"
+                      title="Refresh playlists"
+                      aria-label="Refresh playlist list"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                  <p id="playlistSelectStatus" class="playlist-upgrade__hint status" data-select-status></p>
+                </div>
+                <input
+                  id="targetPlaylist"
+                  name="playlistId"
+                  type="text"
+                  class="playlist-upgrade__input"
+                  placeholder="Paste a Spotify playlist link or ID"
+                  autocomplete="off"
+                />
+                <p class="playlist-upgrade__hint">
+                  We&apos;ll keep the playlist and add fresh tracks from your prompt. Leave blank to create a brand-new mix.
+                </p>
+              </div>
+              <button type="submit" class="btn btn--primary">Create Custom Playlist</button>
+            </form>
+            <div id="formStatus" class="status" role="status" aria-live="polite"></div>
+          </section>
 
-        <section class="panel panel--glass" aria-labelledby="genreTitle">
-          <div class="panel__header">
-            <h2 class="panel__title" id="genreTitle">Organize liked songs by genre</h2>
-            <p class="panel__description">
-              Build smart collections from every track you&apos;ve liked. We&apos;ll gather your saved songs, detect dominant styles, and shape ready-to-save playlists per genre.
+          <section class="panel panel--glass" aria-labelledby="genreTitle">
+            <div class="panel__header">
+              <h2 class="panel__title" id="genreTitle">Organize liked songs by genre</h2>
+              <p class="panel__description">
+                Build smart collections from every track you&apos;ve liked. We&apos;ll gather your saved songs, detect dominant styles, and shape ready-to-save playlists per genre.
+              </p>
+            </div>
+            <div class="genre-actions">
+              <button class="btn btn--primary" id="groupGenresButton">Group liked songs by genre</button>
+              <p id="genreStatus" class="status" role="status" aria-live="polite"></p>
+            </div>
+            <div id="genreResults" class="genre-grid" aria-live="polite"></div>
+          </section>
+
+          <section class="panel panel--glass" aria-labelledby="resultsTitle">
+            <div class="panel__header">
+              <h2 class="panel__title" id="resultsTitle">Your generated playlists</h2>
+              <p class="panel__description">
+                Newly created Spotify playlists appear below. Press play inline or open them directly in Spotify to keep the vibe going.
+              </p>
+            </div>
+            <div id="liveStatus" class="live-status" hidden>
+              <div class="live-status__loader" role="status" aria-live="polite">
+                <span class="loader__orb"></span>
+                <span class="live-status__label">Tuning Gemini&apos;s frequency…</span>
+              </div>
+              <ul id="statusSteps" class="live-status__steps"></ul>
+              <div class="ticker" id="liveTicker" aria-live="polite">
+                <div class="ticker__inner" id="tickerInner"></div>
+              </div>
+            </div>
+            <div id="results" class="playlist-grid" aria-live="polite"></div>
+          </section>
+        </main>
+      </div>
+
+      <div id="chatView" class="view" role="region" aria-labelledby="chatViewTitle" hidden>
+        <header class="hero hero--compact">
+          <div class="hero__content">
+            <h1 class="hero__title" id="chatViewTitle">Brainstorm playlists in chat</h1>
+            <p class="hero__subtitle">
+              Trade ideas with Gemini in a chat-style flow and capture ready-to-use tags and song snippets for your next mix.
             </p>
           </div>
-          <div class="genre-actions">
-            <button class="btn btn--primary" id="groupGenresButton">Group liked songs by genre</button>
-            <p id="genreStatus" class="status" role="status" aria-live="polite"></p>
-          </div>
-          <div id="genreResults" class="genre-grid" aria-live="polite"></div>
-        </section>
+        </header>
 
-        <section class="panel panel--glass" aria-labelledby="resultsTitle">
-          <div class="panel__header">
-            <h2 class="panel__title" id="resultsTitle">Your generated playlists</h2>
-            <p class="panel__description">
-              Newly created Spotify playlists appear below. Press play inline or open them directly in Spotify to keep the vibe going.
-            </p>
-          </div>
-          <div id="liveStatus" class="live-status" hidden>
-            <div class="live-status__loader" role="status" aria-live="polite">
-              <span class="loader__orb"></span>
-              <span class="live-status__label">Tuning Gemini&apos;s frequency…</span>
+        <main class="content chat-content">
+          <section
+            class="panel panel--glass chat-playlist-panel"
+            aria-labelledby="chatPlaylistPanelTitle"
+          >
+            <div class="panel__header chat-playlist-panel__header">
+              <h2 class="panel__title" id="chatPlaylistPanelTitle">Playlist context</h2>
+              <p class="panel__description">
+                Pick an existing Spotify playlist to guide Gemini's suggestions. Leave empty to brainstorm from scratch.
+              </p>
             </div>
-            <ul id="statusSteps" class="live-status__steps"></ul>
-            <div class="ticker" id="liveTicker" aria-live="polite">
-              <div class="ticker__inner" id="tickerInner"></div>
+            <div class="chat-playlist-picker">
+              <label class="chat-playlist-picker__label" for="chatPlaylistSelect"
+                >Enhance an existing playlist (optional)</label
+              >
+              <div class="chat-playlist-picker__controls">
+                <select
+                  id="chatPlaylistSelect"
+                  class="chat-playlist-picker__select"
+                  aria-describedby="chatPlaylistHint"
+                  disabled
+                >
+                  <option value="">Loading playlists…</option>
+                </select>
+                <button
+                  type="button"
+                  class="btn btn--ghost chat-playlist-picker__refresh"
+                  id="chatRefreshPlaylists"
+                >
+                  Refresh
+                </button>
+              </div>
+              <p
+                id="chatPlaylistHint"
+                class="status"
+                role="status"
+                aria-live="polite"
+                hidden
+                aria-hidden="true"
+              ></p>
             </div>
+          </section>
+          <section class="panel panel--glass chat-panel" aria-labelledby="chatPanelTitle">
+            <div class="panel__header chat-panel__header">
+              <h2 class="panel__title" id="chatPanelTitle">Chat with the model</h2>
+              <p class="panel__description">
+                Share the mood, references, or stories you want to translate into music. Gemini replies with insights and optional tags to power up your playlist.
+              </p>
+            </div>
+            <div class="chat-log" id="chatLog" role="log" aria-live="polite">
+              <div class="chat-message chat-message--assistant">
+                <div class="chat-message__avatar" aria-hidden="true">✨</div>
+                <div class="chat-message__bubble">
+                  <span class="chat-message__sender">Geminify</span>
+                  <p class="chat-message__body">Hey! Tell me the vibe, context, or inspiration you're exploring and I'll bring ideas, potential tags, and song examples.
+                  </p>
+                </div>
+              </div>
+            </div>
+            <form id="chatForm" class="chat-form" novalidate>
+              <label class="sr-only" for="chatInput">Message for the model</label>
+              <div class="chat-form__field">
+                <textarea
+                  id="chatInput"
+                  name="message"
+                  rows="3"
+                  placeholder="e.g. I want a cozy playlist with indie game lo-fi"
+                  required
+                ></textarea>
+                <div class="chat-form__actions">
+                  <div class="chat-form__primary">
+                    <button type="submit" class="btn btn--primary" id="chatSendButton">Send</button>
+                    <button type="button" class="btn btn--ghost" id="chatCreatePlaylistButton">
+                      Create playlist from chat
+                    </button>
+                  </div>
+                  <button type="button" class="btn btn--ghost chat-reset" id="chatResetButton">
+                    Reset chat &amp; tags
+                  </button>
+                </div>
+              </div>
+              <div class="chat-form__status">
+                <div id="chatStatus" class="status" role="status" aria-live="polite"></div>
+                <p id="chatCreationStatus" class="status" role="status" aria-live="polite"></p>
+              </div>
+            </form>
+          </section>
+
+          <div class="tag-lane">
+            <section class="panel panel--glass tag-panel" aria-labelledby="themeTagsTitle">
+              <div class="tag-panel__header">
+                <h3 class="tag-panel__title" id="themeTagsTitle">Vibes &amp; narratives</h3>
+                <p class="tag-panel__description">Collect quick keywords for vibe, genre, or references.</p>
+              </div>
+              <div class="tag-list" id="themeTagList" data-empty>
+                <p class="tag-empty">No tags yet. Start chatting with the model!</p>
+              </div>
+            </section>
+
+            <section class="panel panel--glass tag-panel" aria-labelledby="songTagsTitle">
+              <div class="tag-panel__header">
+                <h3 class="tag-panel__title" id="songTagsTitle">Suggested songs</h3>
+                <p class="tag-panel__description">Quick examples to jump-start your playlist.</p>
+              </div>
+              <div class="tag-list" id="songTagList" data-empty>
+                <p class="tag-empty">When suggestions arrive, they’ll show up here.</p>
+              </div>
+            </section>
           </div>
-          <div id="results" class="playlist-grid" aria-live="polite"></div>
-        </section>
-      </main>
+        </main>
+      </div>
 
       <footer class="footer">
         <p>Built with ❤️ using Spotify Web API and Google Gemini</p>
