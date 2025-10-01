@@ -57,6 +57,7 @@ const customPrompt = document.getElementById("customPrompt");
 const targetPlaylistInput = document.getElementById("targetPlaylist");
 const playlistSelect = document.getElementById("playlistSelect");
 const playlistSelectStatus = document.getElementById("playlistSelectStatus");
+const refreshPlaylistsButton = document.getElementById("refreshPlaylists");
 const formStatus = document.getElementById("formStatus");
 const modelSelect = document.getElementById("modelSelect");
 const modelStatus = document.getElementById("modelStatus");
@@ -83,9 +84,7 @@ const tickerState = {
   operation: null,
   lastPlaylist: null,
 };
-
 const MAX_TICKER_SONGS = 60;
-
 const placeholderSongs = [
   "Neon Skyline — Midnight Arcade",
   "Ocean Bloom — Luminous Drift",
@@ -436,28 +435,21 @@ function handleLikedComplete(event) {
     return;
   }
 
-  if (typeof data.total === "number" && Number.isFinite(data.total)) {
-    setLiveStatusLabel(`Músicas curtidas carregadas (${data.total})`);
-  } else {
-    setLiveStatusLabel("Músicas curtidas carregadas");
-  }
+  const total =
+    typeof data.total === "number" && Number.isFinite(data.total)
+      ? data.total
+      : undefined;
+
+  setLiveStatusLabel(
+    typeof total === "number"
+      ? `Músicas curtidas carregadas (${total})`
+      : "Músicas curtidas carregadas"
+  );
 
   if (currentTickerSongs.length) {
     setTickerSongs(currentTickerSongs, { animate: true, allowPlaceholder: false });
-  }
-}
-
-function handleGenreStart(event) {
-  const data = parseEventData(event);
-  switchTickerMode("genre", {
-    requestId: data.requestId || null,
-    operation: data.operation || tickerState.operation,
-    label: data.label || "Organizando por gênero…",
-    allowPlaceholder: true,
-  });
-
-  if (typeof data.totalSongs === "number" && Number.isFinite(data.totalSongs)) {
-    setLiveStatusLabel(`Analisando ${data.totalSongs} músicas curtidas…`);
+  } else {
+    setTickerSongs([], { animate: false, allowPlaceholder: true });
   }
 }
 
@@ -771,12 +763,23 @@ function syncPlaylistSelectionFromCurrentValue() {
   updatePlaylistStatusForValue(currentValue);
 }
 
-async function loadUserPlaylists() {
+async function loadUserPlaylists(options = {}) {
   if (!playlistSelect) return;
+
+  const { trigger = "auto" } = options;
+  const triggeredByButton = trigger === "manual";
+  const originalButtonLabel = refreshPlaylistsButton?.textContent;
 
   playlistSelect.disabled = true;
   playlistSelect.innerHTML = '<option value="">Carregando…</option>';
   setPlaylistSelectStatus("Carregando suas playlists…", "");
+
+  if (refreshPlaylistsButton) {
+    refreshPlaylistsButton.disabled = true;
+    if (triggeredByButton) {
+      refreshPlaylistsButton.textContent = "Atualizando…";
+    }
+  }
 
   try {
     const response = await fetch("/user-playlists");
@@ -830,14 +833,31 @@ async function loadUserPlaylists() {
 
     playlistSelect.disabled = false;
     syncPlaylistSelectionFromCurrentValue();
-    if (!targetPlaylistInput || !targetPlaylistInput.value.trim()) {
-      setPlaylistSelectStatus("Selecione uma playlist para aprimorar ou cole um link abaixo.", "");
+    if (triggeredByButton) {
+      if (!targetPlaylistInput || !targetPlaylistInput.value.trim()) {
+        setPlaylistSelectStatus(
+          "Playlists atualizadas! Selecione uma para aprimorar.",
+          "success"
+        );
+      }
+    } else if (!targetPlaylistInput || !targetPlaylistInput.value.trim()) {
+      setPlaylistSelectStatus(
+        "Selecione uma playlist para aprimorar ou cole um link abaixo.",
+        ""
+      );
     }
   } catch (error) {
     const message = error?.message || "Não foi possível carregar suas playlists.";
     playlistSelect.innerHTML = '<option value="">Carregar novamente</option>';
     setPlaylistSelectStatus(message, "error");
     playlistSelect.disabled = true;
+  } finally {
+    if (refreshPlaylistsButton) {
+      refreshPlaylistsButton.disabled = false;
+      if (triggeredByButton && originalButtonLabel) {
+        refreshPlaylistsButton.textContent = originalButtonLabel;
+      }
+    }
   }
 }
 
@@ -1228,6 +1248,7 @@ groupGenresButton?.addEventListener("click", handleGenreGrouping);
 previewButton?.addEventListener("click", handlePreviewGeneration);
 customForm?.addEventListener("submit", handleCustomSubmit);
 refreshModelsButton?.addEventListener("click", () => loadGeminiModels());
+refreshPlaylistsButton?.addEventListener("click", () => loadUserPlaylists({ trigger: "manual" }));
 playlistSelect?.addEventListener("change", handlePlaylistSelectChange);
 targetPlaylistInput?.addEventListener("input", handlePlaylistManualInput);
 modelSelect?.addEventListener("change", () => {

@@ -65,13 +65,24 @@
               <label class="playlist-upgrade__label" for="targetPlaylist">Improve an existing playlist (optional)</label>
               <div class="playlist-upgrade__select-row">
                 <label class="playlist-upgrade__select-label" for="playlistSelect">Choose from your playlists</label>
-                <select
-                  id="playlistSelect"
-                  class="playlist-upgrade__select model-bar__select"
-                  aria-describedby="playlistSelectStatus"
-                >
-                  <option value="">Loading playlists…</option>
-                </select>
+                <div class="playlist-upgrade__select-inline">
+                  <select
+                    id="playlistSelect"
+                    class="playlist-upgrade__select model-bar__select"
+                    aria-describedby="playlistSelectStatus"
+                  >
+                    <option value="">Loading playlists…</option>
+                  </select>
+                  <button
+                    type="button"
+                    class="btn btn--ghost btn--compact playlist-upgrade__refresh"
+                    id="refreshPlaylists"
+                    title="Atualizar playlists"
+                    aria-label="Atualizar lista de playlists"
+                  >
+                    Atualizar
+                  </button>
+                </div>
                 <p id="playlistSelectStatus" class="playlist-upgrade__hint status" data-select-status></p>
               </div>
               <input
