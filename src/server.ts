@@ -331,7 +331,12 @@ app.get("/gemini-models", async (_req: Request, res: Response) => {
 // Routes
 app.get("/login", (_req: Request, res: Response) => {
   log("Initiating Spotify login");
-  const scopes = ["user-library-read", "playlist-modify-private"];
+  const scopes = [
+    "user-library-read",
+    "playlist-modify-private",
+    "playlist-read-private",
+    "playlist-read-collaborative",
+  ];
   res.redirect(spotifyApi.createAuthorizeURL(scopes, "asd"));
 });
 
@@ -728,12 +733,19 @@ app.get("/user-playlists", async (_req: Request, res: Response) => {
     const limit = 50;
     let offset = 0;
     const maxPlaylists = 200;
+
+    const meResponse = await requestQueue.add(() => spotifyApi.getMe());
+    const currentUserId = meResponse.body?.id ?? "";
+    const currentUserDisplayName =
+      meResponse.body?.display_name || currentUserId || undefined;
+
     const collected: Array<{
       id: string;
       name: string;
       description: string;
       trackCount: number;
       collaborative: boolean;
+      canEdit: boolean;
       owner?: string;
       image?: string | null;
     }> = [];
@@ -748,13 +760,29 @@ app.get("/user-playlists", async (_req: Request, res: Response) => {
 
       for (const playlist of items) {
         if (!playlist?.id || !playlist?.name) continue;
+
+        const ownerId = playlist.owner?.id ?? "";
+        const isOwnedByUser = Boolean(currentUserId && ownerId === currentUserId);
+        const isCollaborative = Boolean(playlist.collaborative);
+        const canEdit = isOwnedByUser || isCollaborative;
+
+        if (!canEdit) {
+          continue;
+        }
+
+        const ownerLabel =
+          isOwnedByUser && currentUserDisplayName
+            ? currentUserDisplayName
+            : playlist.owner?.display_name || playlist.owner?.id;
+
         collected.push({
           id: playlist.id,
           name: playlist.name,
           description: playlist.description ?? "",
           trackCount: playlist.tracks?.total ?? 0,
           collaborative: Boolean(playlist.collaborative),
-          owner: playlist.owner?.display_name || playlist.owner?.id,
+          canEdit,
+          owner: ownerLabel,
           image: playlist.images?.[0]?.url ?? null,
         });
 
@@ -776,8 +804,27 @@ app.get("/user-playlists", async (_req: Request, res: Response) => {
   } catch (error) {
     const errorMessage = formatSpotifyError(error);
     log(`Error fetching user playlists:\n${errorMessage}`);
-    const statusCode = (error as any)?.statusCode === 401 ? 401 : 500;
-    res.status(statusCode).json({ error: "Failed to load playlists from Spotify." });
+
+    const statusCode = (error as any)?.statusCode;
+
+    if (statusCode === 401) {
+      await fs.unlink(tokenPath).catch(() => undefined);
+      return res.status(401).json({
+        error: "Precisamos que você faça login novamente no Spotify.",
+      });
+    }
+
+    if (statusCode === 403) {
+      await fs.unlink(tokenPath).catch(() => undefined);
+      return res.status(403).json({
+        error:
+          "O Spotify solicitou novas permissões para listar suas playlists. Faça login novamente para continuar.",
+      });
+    }
+
+    res
+      .status(500)
+      .json({ error: "Failed to load playlists from Spotify." });
   }
 });
 

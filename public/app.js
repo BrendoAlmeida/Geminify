@@ -51,6 +51,7 @@ requestAnimationFrame(drawBackground);
 window.addEventListener("resize", resizeCanvas);
 
 const previewButton = document.getElementById("previewButton");
+const loginButton = document.getElementById("loginButton");
 const resultsContainer = document.getElementById("results");
 const customForm = document.getElementById("customForm");
 const customPrompt = document.getElementById("customPrompt");
@@ -77,6 +78,10 @@ let tickerRevealInterval = null;
 let currentTickerSongs = [];
 let statusSource = null;
 let statusReconnectTimer = null;
+let modelsLoaded = false;
+let playlistsLoaded = false;
+let modelsLoading = false;
+let playlistsLoading = false;
 
 const tickerState = {
   mode: "idle",
@@ -453,6 +458,37 @@ function handleLikedComplete(event) {
   }
 }
 
+function handleGenreStart(event) {
+  const data = parseEventData(event);
+  switchTickerMode("genre", {
+    requestId: data.requestId || null,
+    operation: data.operation || tickerState.operation,
+    label: data.label || "Organizando por gênero…",
+    allowPlaceholder: true,
+  });
+
+  if (genreStatus) {
+    const totalSongs =
+      typeof data.totalSongs === "number" && Number.isFinite(data.totalSongs)
+        ? data.totalSongs
+        : undefined;
+    const totalArtists =
+      typeof data.totalArtists === "number" && Number.isFinite(data.totalArtists)
+        ? data.totalArtists
+        : undefined;
+
+    const songText = totalSongs
+      ? `${totalSongs} ${totalSongs === 1 ? "música curtida" : "músicas curtidas"}`
+      : "Suas músicas curtidas";
+    const artistText =
+      totalArtists && totalArtists > 0
+        ? ` de ${totalArtists} ${totalArtists === 1 ? "artista" : "artistas"}`
+        : "";
+
+    showStatus(genreStatus, `Agrupando ${songText}${artistText}…`, "");
+  }
+}
+
 function handleGenreProgress(event) {
   const data = parseEventData(event);
   if (!isCurrentRequest("genre", data.requestId || null)) {
@@ -648,6 +684,10 @@ function updateModelStatus(model) {
 
 async function loadGeminiModels() {
   if (!modelSelect || !modelStatus) return;
+  if (modelsLoading) return;
+
+  modelsLoading = true;
+  modelsLoaded = false;
 
   availableModels = [];
   modelSelect.disabled = true;
@@ -749,11 +789,14 @@ function updatePlaylistStatusForValue(value) {
     );
   }
 }
+    modelsLoaded = true;
 
 function syncPlaylistSelectionFromCurrentValue() {
   if (!targetPlaylistInput) {
     updatePlaylistStatusForValue("");
+    modelsLoaded = false;
     return;
+    modelsLoading = false;
   }
   const currentValue = targetPlaylistInput.value.trim();
   if (playlistSelect) {
@@ -765,6 +808,10 @@ function syncPlaylistSelectionFromCurrentValue() {
 
 async function loadUserPlaylists(options = {}) {
   if (!playlistSelect) return;
+  if (playlistsLoading) return;
+
+  playlistsLoading = true;
+  playlistsLoaded = false;
 
   const { trigger = "auto" } = options;
   const triggeredByButton = trigger === "manual";
@@ -783,12 +830,17 @@ async function loadUserPlaylists(options = {}) {
 
   try {
     const response = await fetch("/user-playlists");
-    if (response.status === 401) {
-      playlistSelect.innerHTML = '<option value="">Faça login para carregar suas playlists</option>';
-      setPlaylistSelectStatus(
-        "Entre com o Spotify para selecionar uma playlist existente.",
-        "error"
-      );
+    if (response.status === 401 || response.status === 403) {
+      playlistSelect.innerHTML =
+        '<option value="">Faça login para carregar suas playlists</option>';
+      const message =
+        response.status === 403
+          ? "Precisamos de novas permissões para listar suas playlists. Clique em ‘Log in with Spotify’."
+          : "Entre com o Spotify para selecionar uma playlist existente.";
+      setPlaylistSelectStatus(message, "error");
+      playlistSelect.disabled = true;
+      loginButton?.focus();
+      playlistsLoaded = false;
       return;
     }
 
@@ -810,6 +862,7 @@ async function loadUserPlaylists(options = {}) {
       playlistSelect.append(option);
       setPlaylistSelectStatus("Não encontramos playlists na sua conta ainda.", "");
       playlistSelect.disabled = true;
+      playlistsLoaded = true;
       return;
     }
 
@@ -846,11 +899,13 @@ async function loadUserPlaylists(options = {}) {
         ""
       );
     }
+    playlistsLoaded = true;
   } catch (error) {
     const message = error?.message || "Não foi possível carregar suas playlists.";
     playlistSelect.innerHTML = '<option value="">Carregar novamente</option>';
     setPlaylistSelectStatus(message, "error");
     playlistSelect.disabled = true;
+    playlistsLoaded = false;
   } finally {
     if (refreshPlaylistsButton) {
       refreshPlaylistsButton.disabled = false;
@@ -858,6 +913,7 @@ async function loadUserPlaylists(options = {}) {
         refreshPlaylistsButton.textContent = originalButtonLabel;
       }
     }
+    playlistsLoading = false;
   }
 }
 
@@ -1261,6 +1317,31 @@ modelSelect?.addEventListener("change", () => {
 
   localStorage.setItem(MODEL_STORAGE_KEY, selected);
   updateModelStatus(findModel(selected));
+});
+
+function refreshDataIfUnloaded() {
+  if (!modelsLoaded && !modelsLoading) {
+    loadGeminiModels();
+  }
+  if (!playlistsLoaded && !playlistsLoading) {
+    loadUserPlaylists();
+  }
+}
+
+document.addEventListener("visibilitychange", () => {
+  if (document.visibilityState === "visible") {
+    refreshDataIfUnloaded();
+  }
+});
+
+window.addEventListener("focus", () => {
+  refreshDataIfUnloaded();
+});
+
+window.addEventListener("pageshow", (event) => {
+  if (event.persisted) {
+    refreshDataIfUnloaded();
+  }
 });
 
 initStatusStream();
