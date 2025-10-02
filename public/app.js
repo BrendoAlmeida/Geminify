@@ -86,6 +86,748 @@ const chatCreationStatus = document.getElementById("chatCreationStatus");
 const themeTagList = document.getElementById("themeTagList");
 const songTagList = document.getElementById("songTagList");
 const chatCreatePlaylistButton = document.getElementById("chatCreatePlaylistButton");
+const languageSwitcher = document.querySelector(".language-switcher");
+const languageButtons = Array.from(document.querySelectorAll(".language-switcher__option"));
+const htmlElement = document.documentElement;
+
+const LOCALE_STORAGE_KEY = "claudify:locale";
+const DEFAULT_LOCALE = "en";
+const SUPPORTED_LOCALES = ["en", "pt-BR"];
+
+const TRANSLATIONS = {
+  en: {
+    meta: {
+      title: "Claudify · AI Playlist Curator",
+    },
+    lang: {
+      selector: "Language selector",
+      option: {
+        enFull: "English",
+        ptFull: "Português (Brasil)",
+      },
+    },
+    nav: {
+      aria: "Toggle creation mode",
+      playlists: {
+        title: "Playlist generator",
+        hint: "Create or enhance mixes with Gemini + Spotify",
+      },
+      chat: {
+        title: "Idea lounge",
+        hint: "Chat with the model and capture tags",
+      },
+    },
+    hero: {
+      playlists: {
+        title: "Craft soundscapes with AI + Spotify",
+        subtitle:
+          "Spin up immersive playlists with a tap or describe the vibe and let Gemini curate a bespoke mix in seconds.",
+        login: "Log in with Spotify",
+        preview: "Generate Random Playlists",
+      },
+    },
+    custom: {
+      title: "Dream up a custom mix",
+      description:
+        "Describe a mood, scene, story, or genre-bending idea. Gemini will weave 20+ tracks into a cohesive set, then we push it straight to your Spotify.",
+    },
+    models: {
+      label: "Gemini model",
+      refresh: "Refresh",
+      loading: "Loading models…",
+      status: {
+        connecting: "Connecting to Gemini…",
+      },
+    },
+    forms: {
+      custom: {
+        placeholder:
+          "e.g. A neon-lit midnight drive through Tokyo blending synthwave, future funk, and vapor soul",
+        submit: "Create Custom Playlist",
+      },
+      upgrade: {
+        title: "Improve an existing playlist (optional)",
+        selectLabel: "Choose from your playlists",
+        loading: "Loading playlists…",
+        refresh: "Refresh",
+        placeholder: "Paste a Spotify playlist link or ID",
+        help:
+          "We’ll keep the playlist and add fresh tracks from your prompt. Leave blank to create a brand-new mix.",
+      },
+    },
+    genre: {
+      title: "Organize liked songs by genre",
+      description:
+        "Build smart collections from every track you've liked. We'll gather your saved songs, detect dominant styles, and shape ready-to-save playlists per genre.",
+      cta: "Group liked songs by genre",
+    },
+    results: {
+      title: "Your generated playlists",
+      description:
+        "Newly created Spotify playlists appear below. Press play inline or open them directly in Spotify to keep the vibe going.",
+    },
+    live: {
+      tuning: "Tuning Gemini's frequency…",
+      waiting: "Waiting for tracks…",
+      creating: "Creating playlists…",
+      ready: "Playlists ready!",
+      error: "Something went wrong",
+      liked: {
+        loading: "Loading liked songs…",
+        loaded: "Liked songs loaded",
+      },
+      genre: {
+        organizing: "Organizing by genre…",
+        ready: "Genre playlists ready!",
+      },
+      gemini: {
+        suggesting: "Gemini is suggesting tracks…",
+        curating: "Gemini is curating “{name}”",
+      },
+    },
+    chat: {
+      hero: {
+        title: "Brainstorm playlists in chat",
+        subtitle:
+          "Trade ideas with Gemini in a chat-style flow and capture ready-to-use tags and song snippets for your next mix.",
+      },
+      sender: {
+        assistant: "Geminify",
+        user: "You",
+      },
+      playlistContext: {
+        title: "Playlist context",
+        description:
+          "Pick an existing Spotify playlist to guide Gemini's suggestions. Leave empty to brainstorm from scratch.",
+        label: "Enhance an existing playlist (optional)",
+        loading: "Loading playlists…",
+        refresh: "Refresh",
+      },
+      panel: {
+        title: "Chat with the model",
+        description:
+          "Share the mood, references, or stories you want to translate into music. Gemini replies with insights and optional tags to power up your playlist.",
+      },
+      initialMessage:
+        "Hey! Tell me the vibe, context, or inspiration you're exploring and I'll bring ideas, potential tags, and song examples.",
+      form: {
+        label: "Message for the model",
+        placeholder: "e.g. I want a cozy playlist with indie game lo-fi",
+        send: "Send",
+        create: "Create playlist from chat",
+        reset: "Reset chat & tags",
+      },
+      tags: {
+        themeTitle: "Vibes & narratives",
+        themeDescription: "Collect quick keywords for vibe, genre, or references.",
+        emptyTheme: "No tags yet. Start chatting with the model!",
+        songTitle: "Suggested songs",
+        songDescription: "Quick examples to jump-start your playlist.",
+        emptySong: "When suggestions arrive, they’ll show up here.",
+      },
+    },
+    footer: {
+      note: "Built with ❤️ using Spotify Web API and Google Gemini",
+    },
+    loading: {
+      preview: [
+        "Calling Gemini",
+        "Curating themed playlists",
+        "Finding matching Spotify tracks",
+        "Building playlist embeds",
+      ],
+      custom: [
+        "Reading your prompt",
+        "Curating the perfect sequence",
+        "Matching tracks on Spotify",
+        "Publishing your playlist",
+      ],
+      customUpgrade: [
+        "Reading your prompt",
+        "Curating the perfect sequence",
+        "Matching tracks on Spotify",
+        "Refreshing your playlist",
+      ],
+      genre: [
+        "Loading liked songs",
+        "Collecting artist genres",
+        "Building playlists by style",
+        "Ready to listen",
+      ],
+    },
+    copy: {
+      song: {
+        one: "song",
+        other: "songs",
+      },
+      playlist: {
+        one: "playlist",
+        other: "playlists",
+      },
+    },
+    strings: {
+      "Liked songs loaded ({total})": "Liked songs loaded ({total})",
+      "Grouping your liked songs…": "Grouping your liked songs…",
+      "Collecting genres ({processed}/{total} artists)": "Collecting genres ({processed}/{total} artists)",
+      "Building playlists ({processed}/{total} songs)": "Building playlists ({processed}/{total} songs)",
+      "Done! {playlists} genre playlists with {songs} songs.": "Done! {playlists} genre playlists with {songs} songs.",
+      "Done! {playlists} genre playlists.": "Done! {playlists} genre playlists.",
+      "Select a Gemini model to start generating.": "Select a Gemini model to start generating.",
+      "Tokens in/out: {input} / {output}": "Tokens in/out: {input} / {output}",
+      "Input tokens: {value}": "Input tokens: {value}",
+      "Output tokens: {value}": "Output tokens: {value}",
+      "Loading available Gemini models…": "Loading available Gemini models…",
+      "Failed to load Gemini models": "Failed to load Gemini models",
+      "No Gemini models available for this API key": "No Gemini models available for this API key",
+      "Could not load Gemini models": "Could not load Gemini models",
+      "Loading…": "Loading…",
+      "Unavailable": "Unavailable",
+      "Loading playlists": "Loading playlists",
+      "Paste a link or choose a playlist (optional)": "Paste a link or choose a playlist (optional)",
+      "We’ll enhance “{label}”": "We’ll enhance “{label}”",
+      "Using a custom link/ID. Make sure the playlist is yours or collaborative.": "Using a custom link/ID. Make sure the playlist is yours or collaborative.",
+      "Remove tag {tag}": "Remove tag {tag}",
+      "Select a playlist to enhance (optional)": "Select a playlist to enhance (optional)",
+      "No playlists found": "No playlists found",
+      "We couldn't find playlists in your account yet.": "We couldn't find playlists in your account yet.",
+      "Enhancing “{name}” with {count} {songsLabel} loaded.": "Enhancing “{name}” with {count} {songsLabel} loaded.",
+      "Select “{name}” to load songs for enhancement.": "Select “{name}” to load songs for enhancement.",
+      "Loading songs from “{name}”…": "Loading songs from “{name}”…",
+      "Log in with Spotify to load this playlist.": "Log in with Spotify to load this playlist.",
+      "We need new Spotify permissions to view this playlist.": "We need new Spotify permissions to view this playlist.",
+      "Couldn't load playlist songs.": "Couldn't load playlist songs.",
+      "Playlist details were incomplete.": "Playlist details were incomplete.",
+      "Create a cohesive Spotify playlist that reflects this brainstorming session. Capture mood, pacing, and storytelling across 20-25 tracks.": "Create a cohesive Spotify playlist that reflects this brainstorming session. Capture mood, pacing, and storytelling across 20-25 tracks.",
+      "Focus tags: {tags}": "Focus tags: {tags}",
+      "Song references to echo or build around: {tags}": "Song references to echo or build around: {tags}",
+      " ({count} {songsLabel})": " ({count} {songsLabel})",
+      "Existing playlist to enhance: “{name}”{countLabel}.": "Existing playlist to enhance: “{name}”{countLabel}.",
+      "Description: {description}": "Description: {description}",
+      "Current track highlights:\n{highlights}": "Current track highlights:\n{highlights}",
+      "Conversation notes:\n{conversation}": "Conversation notes:\n{conversation}",
+      "Write a message before sending.": "Write a message before sending.",
+      "Hold on a moment—still loading playlist details.": "Hold on a moment—still loading playlist details.",
+      "Checking with Gemini…": "Checking with Gemini…",
+      "Sending…": "Sending…",
+      "Reply received!": "Reply received!",
+      "Conversation refreshed, no new tags this time.": "Conversation refreshed, no new tags this time.",
+      "Tags updated!": "Tags updated!",
+      "We couldn’t chat with the model right now.": "We couldn’t chat with the model right now.",
+      "Chat with Gemini or capture some tags before creating a playlist.": "Chat with Gemini or capture some tags before creating a playlist.",
+      "We need more chat context or tags to craft a playlist.": "We need more chat context or tags to craft a playlist.",
+      "Creating…": "Creating…",
+      "Creating a playlist from your chat…": "Creating a playlist from your chat…",
+      "Playlist created from your chat! Opening the playlists view…": "Playlist created from your chat! Opening the playlists view…",
+      "Playlist refreshed!": "Playlist refreshed!",
+      "Custom playlist ready!": "Custom playlist ready!",
+      "Log in with Spotify to create playlists.": "Log in with Spotify to create playlists.",
+      "Couldn't create a playlist from chat.": "Couldn't create a playlist from chat.",
+      "Loading your playlists…": "Loading your playlists…",
+      "Sign in to load your playlists": "Sign in to load your playlists",
+      "We need new permissions to list your playlists. Click ‘Log in with Spotify’.": "We need new permissions to list your playlists. Click ‘Log in with Spotify’.",
+      "Sign in with Spotify to choose an existing playlist.": "Sign in with Spotify to choose an existing playlist.",
+      "Sign in with Spotify to enhance an existing playlist.": "Sign in with Spotify to enhance an existing playlist.",
+      "Select a playlist (optional)": "Select a playlist (optional)",
+      "Playlists refreshed! Pick one to enhance.": "Playlists refreshed! Pick one to enhance.",
+      "Pick a playlist to enhance or paste a link below.": "Pick a playlist to enhance or paste a link below.",
+      "Load again": "Load again",
+      "Playlist preview for {name}": "Playlist preview for {name}",
+      "Open in Spotify": "Open in Spotify",
+      "No liked songs to group just yet.": "No liked songs to group just yet.",
+      "Genre playlist": "Genre playlist",
+      "Collection built from your liked songs.": "Collection built from your liked songs.",
+      "View songs ({count})": "View songs ({count})",
+      "Track {index}": "Track {index}",
+      "Unknown artist": "Unknown artist",
+      "… and {count} more songs": "… and {count} more songs",
+      "Generating…": "Generating…",
+      "Spotify login required": "Spotify login required",
+      "Failed to generate playlists": "Failed to generate playlists",
+      "Generation failed": "Generation failed",
+      "Please describe the playlist vibe first.": "Please describe the playlist vibe first.",
+      "Spinning up your mix…": "Spinning up your mix…",
+      "Playlist updated with fresh tracks on Spotify!": "Playlist updated with fresh tracks on Spotify!",
+      "Custom playlist created and added to Spotify!": "Custom playlist created and added to Spotify!",
+      "Please log in with Spotify to continue.": "Please log in with Spotify to continue.",
+      "Organizing…": "Organizing…",
+      "Grouping your liked songs…": "Grouping your liked songs…",
+      "Couldn't group songs by genre.": "Couldn't group songs by genre.",
+      "Sign in with Spotify to continue.": "Sign in with Spotify to continue.",
+  "Failed to create playlist": "Failed to create playlist",
+  "The server didn't return a playlist.": "The server didn't return a playlist.",
+    },
+  },
+  "pt-BR": {
+    meta: {
+      title: "Claudify · Curador de playlists com IA",
+    },
+    lang: {
+      selector: "Seletor de idioma",
+      option: {
+        enFull: "Inglês",
+        ptFull: "Português (Brasil)",
+      },
+    },
+    nav: {
+      aria: "Alternar modo de criação",
+      playlists: {
+        title: "Gerador de playlists",
+        hint: "Crie ou aprimore sets com Gemini + Spotify",
+      },
+      chat: {
+        title: "Sala de ideias",
+        hint: "Converse com o modelo e capture tags",
+      },
+    },
+    hero: {
+      playlists: {
+        title: "Crie paisagens sonoras com IA + Spotify",
+        subtitle:
+          "Gere playlists imersivas com um toque ou descreva o clima e deixe o Gemini montar um set sob medida em segundos.",
+        login: "Entrar com Spotify",
+        preview: "Gerar playlists aleatórias",
+      },
+    },
+    custom: {
+      title: "Imagine um set personalizado",
+      description:
+        "Descreva um clima, cena, história ou ideia híbrida. O Gemini tece mais de 20 faixas em um conjunto coeso e enviamos direto para o seu Spotify.",
+    },
+    models: {
+      label: "Modelo Gemini",
+      refresh: "Atualizar",
+      loading: "Carregando modelos…",
+      status: {
+        connecting: "Conectando ao Gemini…",
+      },
+    },
+    forms: {
+      custom: {
+        placeholder:
+          "ex.: Um rolê noturno em Tóquio com synthwave, future funk e vapor soul",
+        submit: "Criar playlist personalizada",
+      },
+      upgrade: {
+        title: "Melhore uma playlist existente (opcional)",
+        selectLabel: "Escolha entre suas playlists",
+        loading: "Carregando playlists…",
+        refresh: "Atualizar",
+        placeholder: "Cole um link ou ID de playlist do Spotify",
+        help:
+          "Mantemos a playlist e adicionamos faixas novas a partir do seu prompt. Deixe em branco para criar um set inédito.",
+      },
+    },
+    genre: {
+      title: "Organize músicas curtidas por gênero",
+      description:
+        "Monte coleções inteligentes com todas as faixas que você curtiu. Buscamos suas músicas salvas, detectamos estilos dominantes e criamos playlists prontas por gênero.",
+      cta: "Agrupar músicas curtidas por gênero",
+    },
+    results: {
+      title: "Suas playlists geradas",
+      description:
+        "As playlists novas aparecem abaixo. Dê play aqui mesmo ou abra no Spotify para manter o clima.",
+    },
+    live: {
+      tuning: "Ajustando a frequência do Gemini…",
+      waiting: "Aguardando faixas…",
+      creating: "Criando playlists…",
+      ready: "Playlists prontas!",
+      error: "Algo deu errado",
+      liked: {
+        loading: "Carregando músicas curtidas…",
+        loaded: "Músicas curtidas carregadas",
+      },
+      genre: {
+        organizing: "Organizando por gênero…",
+        ready: "Playlists por gênero prontas!",
+      },
+      gemini: {
+        suggesting: "Gemini está sugerindo faixas…",
+        curating: "Gemini está curando “{name}”",
+      },
+    },
+    chat: {
+      hero: {
+        title: "Crie playlists conversando",
+        subtitle:
+          "Troque ideias com o Gemini em formato de chat e capture tags e sugestões rápidas para o seu próximo set.",
+      },
+      sender: {
+        assistant: "Geminify",
+        user: "Você",
+      },
+      playlistContext: {
+        title: "Contexto da playlist",
+        description:
+          "Escolha uma playlist do Spotify para guiar as sugestões do Gemini. Deixe vazio para começar do zero.",
+        label: "Aprimorar uma playlist existente (opcional)",
+        loading: "Carregando playlists…",
+        refresh: "Atualizar",
+      },
+      panel: {
+        title: "Converse com o modelo",
+        description:
+          "Compartilhe o clima, referências ou histórias que quer transformar em música. O Gemini responde com ideias e tags opcionais para turbinar sua playlist.",
+      },
+      initialMessage:
+        "Oi! Conte o clima, contexto ou inspiração que você quer explorar e eu trago ideias, tags e exemplos de músicas.",
+      form: {
+        label: "Mensagem para o modelo",
+        placeholder: "ex.: Quero uma playlist aconchegante com lo-fi de jogos indie",
+        send: "Enviar",
+        create: "Criar playlist a partir do chat",
+        reset: "Limpar chat e tags",
+      },
+      tags: {
+        themeTitle: "Climas e narrativas",
+        themeDescription: "Colete palavras-chave rápidas de clima, gênero ou referências.",
+        emptyTheme: "Ainda não há tags. Comece a conversar com o modelo!",
+        songTitle: "Músicas sugeridas",
+        songDescription: "Exemplos rápidos para acelerar sua playlist.",
+        emptySong: "Quando houver sugestões, elas aparecem aqui.",
+      },
+    },
+    footer: {
+      note: "Construído com ❤️ usando Spotify Web API e Google Gemini",
+    },
+    loading: {
+      preview: [
+        "Chamando o Gemini",
+        "Curando playlists temáticas",
+        "Encontrando faixas correspondentes no Spotify",
+        "Montando embeds das playlists",
+      ],
+      custom: [
+        "Lendo seu prompt",
+        "Curando a sequência perfeita",
+        "Buscando faixas no Spotify",
+        "Publicando sua playlist",
+      ],
+      customUpgrade: [
+        "Lendo seu prompt",
+        "Curando a sequência perfeita",
+        "Buscando faixas no Spotify",
+        "Atualizando sua playlist",
+      ],
+      genre: [
+        "Carregando músicas curtidas",
+        "Coletando gêneros dos artistas",
+        "Montando playlists por estilo",
+        "Pronto para ouvir",
+      ],
+    },
+    copy: {
+      song: {
+        one: "música",
+        other: "músicas",
+      },
+      playlist: {
+        one: "playlist",
+        other: "playlists",
+      },
+    },
+    strings: {
+      "Liked songs loaded ({total})": "Músicas curtidas carregadas ({total})",
+      "Grouping your liked songs…": "Agrupando suas músicas curtidas…",
+      "Collecting genres ({processed}/{total} artists)": "Coletando gêneros ({processed}/{total} artistas)",
+      "Building playlists ({processed}/{total} songs)": "Montando playlists ({processed}/{total} músicas)",
+      "Done! {playlists} genre playlists with {songs} songs.": "Pronto! {playlists} playlists por gênero com {songs} músicas.",
+      "Done! {playlists} genre playlists.": "Pronto! {playlists} playlists por gênero.",
+      "Select a Gemini model to start generating.": "Selecione um modelo Gemini para começar a gerar.",
+      "Tokens in/out: {input} / {output}": "Tokens entrada/saída: {input} / {output}",
+      "Input tokens: {value}": "Tokens de entrada: {value}",
+      "Output tokens: {value}": "Tokens de saída: {value}",
+      "Loading available Gemini models…": "Carregando modelos Gemini disponíveis…",
+      "Failed to load Gemini models": "Falha ao carregar modelos do Gemini",
+      "No Gemini models available for this API key": "Nenhum modelo do Gemini disponível para esta chave de API",
+      "Could not load Gemini models": "Não foi possível carregar os modelos do Gemini",
+      "Loading…": "Carregando…",
+      "Unavailable": "Indisponível",
+      "Loading playlists": "Carregando playlists",
+      "Paste a link or choose a playlist (optional)": "Cole um link ou escolha uma playlist (opcional)",
+      "We’ll enhance “{label}”": "Vamos aprimorar “{label}”",
+      "Using a custom link/ID. Make sure the playlist is yours or collaborative.": "Usando um link/ID personalizado. Garanta que a playlist seja sua ou colaborativa.",
+      "Remove tag {tag}": "Remover tag {tag}",
+      "Select a playlist to enhance (optional)": "Selecione uma playlist para aprimorar (opcional)",
+      "No playlists found": "Nenhuma playlist encontrada",
+      "We couldn't find playlists in your account yet.": "Ainda não encontramos playlists na sua conta.",
+      "Enhancing “{name}” with {count} {songsLabel} loaded.": "Aprimorando “{name}” com {count} {songsLabel} já carregadas.",
+      "Select “{name}” to load songs for enhancement.": "Selecione “{name}” para carregar músicas e aprimorar.",
+      "Loading songs from “{name}”…": "Carregando músicas de “{name}”…",
+      "Log in with Spotify to load this playlist.": "Entre com o Spotify para carregar esta playlist.",
+      "We need new Spotify permissions to view this playlist.": "Precisamos de novas permissões do Spotify para ver esta playlist.",
+      "Couldn't load playlist songs.": "Não foi possível carregar as músicas da playlist.",
+      "Playlist details were incomplete.": "Os detalhes da playlist estavam incompletos.",
+      "Create a cohesive Spotify playlist that reflects this brainstorming session. Capture mood, pacing, and storytelling across 20-25 tracks.": "Crie uma playlist coesa no Spotify que reflita esta sessão de brainstorming. Capture clima, ritmo e narrativa em 20-25 faixas.",
+      "Focus tags: {tags}": "Tags em foco: {tags}",
+      "Song references to echo or build around: {tags}": "Referências de músicas para ecoar ou desenvolver: {tags}",
+      " ({count} {songsLabel})": " ({count} {songsLabel})",
+      "Existing playlist to enhance: “{name}”{countLabel}.": "Playlist existente para aprimorar: “{name}”{countLabel}.",
+      "Description: {description}": "Descrição: {description}",
+      "Current track highlights:\n{highlights}": "Destaques atuais da playlist:\n{highlights}",
+      "Conversation notes:\n{conversation}": "Notas da conversa:\n{conversation}",
+      "Write a message before sending.": "Escreva uma mensagem antes de enviar.",
+      "Hold on a moment—still loading playlist details.": "Espere um instante — ainda carregando os detalhes da playlist.",
+      "Checking with Gemini…": "Consultando o Gemini…",
+      "Sending…": "Enviando…",
+      "Reply received!": "Resposta recebida!",
+      "Conversation refreshed, no new tags this time.": "Conversa atualizada, sem novas tags desta vez.",
+      "Tags updated!": "Tags atualizadas!",
+      "We couldn’t chat with the model right now.": "Não foi possível conversar com o modelo agora.",
+      "Chat with Gemini or capture some tags before creating a playlist.": "Converse com o Gemini ou capture algumas tags antes de criar uma playlist.",
+      "We need more chat context or tags to craft a playlist.": "Precisamos de mais contexto do chat ou tags para montar uma playlist.",
+      "Creating…": "Criando…",
+      "Creating a playlist from your chat…": "Criando uma playlist a partir do seu chat…",
+      "Playlist created from your chat! Opening the playlists view…": "Playlist criada a partir do seu chat! Abrindo a visualização de playlists…",
+      "Playlist refreshed!": "Playlist atualizada!",
+      "Custom playlist ready!": "Playlist personalizada pronta!",
+      "Log in with Spotify to create playlists.": "Entre com o Spotify para criar playlists.",
+      "Couldn't create a playlist from chat.": "Não foi possível criar uma playlist a partir do chat.",
+      "Loading your playlists…": "Carregando suas playlists…",
+      "Sign in to load your playlists": "Entre para carregar suas playlists",
+      "We need new permissions to list your playlists. Click ‘Log in with Spotify’.": "Precisamos de novas permissões para listar suas playlists. Clique em ‘Entrar com Spotify’.",
+      "Sign in with Spotify to choose an existing playlist.": "Entre com o Spotify para escolher uma playlist existente.",
+      "Sign in with Spotify to enhance an existing playlist.": "Entre com o Spotify para aprimorar uma playlist existente.",
+      "Select a playlist (optional)": "Selecione uma playlist (opcional)",
+      "Playlists refreshed! Pick one to enhance.": "Playlists atualizadas! Escolha uma para aprimorar.",
+      "Pick a playlist to enhance or paste a link below.": "Escolha uma playlist para aprimorar ou cole um link abaixo.",
+      "Load again": "Carregar novamente",
+      "Playlist preview for {name}": "Prévia da playlist {name}",
+      "Open in Spotify": "Abrir no Spotify",
+      "No liked songs to group just yet.": "Ainda não há músicas curtidas para agrupar.",
+      "Genre playlist": "Playlist por gênero",
+      "Collection built from your liked songs.": "Coleção criada a partir das suas músicas curtidas.",
+      "View songs ({count})": "Ver músicas ({count})",
+      "Track {index}": "Faixa {index}",
+      "Unknown artist": "Artista desconhecido",
+      "… and {count} more songs": "… e mais {count} músicas",
+      "Generating…": "Gerando…",
+      "Spotify login required": "É necessário entrar com o Spotify",
+      "Failed to generate playlists": "Falha ao gerar playlists",
+      "Generation failed": "Geração falhou",
+      "Please describe the playlist vibe first.": "Descreva primeiro o clima da playlist.",
+      "Spinning up your mix…": "Preparando seu mix…",
+      "Playlist updated with fresh tracks on Spotify!": "Playlist atualizada com faixas novas no Spotify!",
+      "Custom playlist created and added to Spotify!": "Playlist personalizada criada e adicionada ao Spotify!",
+      "Please log in with Spotify to continue.": "Entre com o Spotify para continuar.",
+      "Organizing…": "Organizando…",
+      "Grouping your liked songs…": "Agrupando suas músicas curtidas…",
+      "Couldn't group songs by genre.": "Não foi possível agrupar as músicas por gênero.",
+      "Sign in with Spotify to continue.": "Entre com o Spotify para continuar.",
+  "Failed to create playlist": "Falha ao criar playlist",
+  "The server didn't return a playlist.": "O servidor não retornou uma playlist.",
+    },
+  },
+};
+
+let currentLocale = DEFAULT_LOCALE;
+
+const PATH_KEY_REGEX = /^[A-Za-z0-9_.-]+$/;
+
+function isKeyPath(key) {
+  return typeof key === "string" && PATH_KEY_REGEX.test(key) && !key.includes(" ");
+}
+
+function resolveTranslationPath(localeData, key) {
+  if (!localeData) return undefined;
+  return key.split(".").reduce((accumulator, segment) => {
+    if (accumulator && Object.prototype.hasOwnProperty.call(accumulator, segment)) {
+      return accumulator[segment];
+    }
+    return undefined;
+  }, localeData);
+}
+
+function applyReplacements(value, replacements = {}) {
+  if (!value || typeof value !== "string") {
+    return value;
+  }
+  return value.replace(/\{(.*?)\}/g, (match, token) => {
+    if (Object.prototype.hasOwnProperty.call(replacements, token)) {
+      const replacement = replacements[token];
+      return replacement === undefined || replacement === null ? "" : String(replacement);
+    }
+    return match;
+  });
+}
+
+function t(key, replacements = {}, { fallback } = {}) {
+  const activeData = TRANSLATIONS[currentLocale] || TRANSLATIONS[DEFAULT_LOCALE];
+  const defaultData = TRANSLATIONS[DEFAULT_LOCALE];
+
+  let value;
+
+  if (isKeyPath(key)) {
+    value = resolveTranslationPath(activeData, key);
+    if (value === undefined) {
+      value = resolveTranslationPath(defaultData, key);
+    }
+  }
+
+  if (value === undefined) {
+    const activeStrings = activeData?.strings || {};
+    const defaultStrings = defaultData?.strings || {};
+    if (Object.prototype.hasOwnProperty.call(activeStrings, key)) {
+      value = activeStrings[key];
+    } else if (Object.prototype.hasOwnProperty.call(defaultStrings, key)) {
+      value = defaultStrings[key];
+    }
+  }
+
+  if (value === undefined) {
+    value = fallback !== undefined ? fallback : key;
+  }
+
+  if (Array.isArray(value)) {
+    return value.map((entry) =>
+      typeof entry === "string" ? applyReplacements(entry, replacements) : entry
+    );
+  }
+
+  if (typeof value === "string") {
+    return applyReplacements(value, replacements);
+  }
+
+  return value;
+}
+
+function tList(key, replacements = {}, options = {}) {
+  const value = t(key, replacements, options);
+  return Array.isArray(value) ? value : [];
+}
+
+function getCopyLabel(noun, count) {
+  const path = `copy.${noun}.${count === 1 ? "one" : "other"}`;
+  const fallback = count === 1 ? noun : `${noun}s`;
+  return t(path, {}, { fallback });
+}
+
+function applyStaticTranslations() {
+  document.title = t("meta.title", {}, { fallback: document.title });
+
+  document.querySelectorAll("[data-i18n]").forEach((element) => {
+    const key = element.getAttribute("data-i18n");
+    if (!key) return;
+    const fallback = element.textContent?.trim() ?? "";
+    const localized = t(key, {}, { fallback });
+    if (typeof localized === "string") {
+      element.textContent = localized;
+    }
+  });
+
+  document.querySelectorAll("[data-i18n-placeholder]").forEach((element) => {
+    const key = element.getAttribute("data-i18n-placeholder");
+    if (!key) return;
+    const fallback = element.getAttribute("placeholder") || "";
+    const localized = t(key, {}, { fallback });
+    if (typeof localized === "string") {
+      element.setAttribute("placeholder", localized);
+    }
+  });
+
+  document.querySelectorAll("[data-i18n-title]").forEach((element) => {
+    const key = element.getAttribute("data-i18n-title");
+    if (!key) return;
+    const fallback = element.getAttribute("title") || "";
+    const localized = t(key, {}, { fallback });
+    if (typeof localized === "string") {
+      element.setAttribute("title", localized);
+    }
+  });
+
+  document.querySelectorAll("[data-i18n-aria-label]").forEach((element) => {
+    const key = element.getAttribute("data-i18n-aria-label");
+    if (!key) return;
+    const fallback = element.getAttribute("aria-label") || "";
+    const localized = t(key, {}, { fallback });
+    if (typeof localized === "string") {
+      element.setAttribute("aria-label", localized);
+    }
+  });
+}
+
+function updateLanguageButtons() {
+  languageButtons.forEach((button) => {
+    const buttonLocale = button.dataset.lang;
+    const isActive = buttonLocale === currentLocale;
+    button.classList.toggle("is-active", isActive);
+    button.setAttribute("aria-pressed", String(isActive));
+  });
+}
+
+function refreshLocaleDependentCopy() {
+  if (htmlElement) {
+    htmlElement.setAttribute("lang", currentLocale);
+  }
+  updateLanguageButtons();
+}
+
+function setLocale(locale, { persist = true } = {}) {
+  const normalized = SUPPORTED_LOCALES.includes(locale) ? locale : DEFAULT_LOCALE;
+  currentLocale = normalized;
+
+  if (persist) {
+    try {
+      localStorage.setItem(LOCALE_STORAGE_KEY, currentLocale);
+    } catch (error) {
+      console.warn("Failed to persist locale", error);
+    }
+  }
+
+  applyStaticTranslations();
+  refreshLocaleDependentCopy();
+}
+
+function determineInitialLocale() {
+  try {
+    const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
+    if (stored && SUPPORTED_LOCALES.includes(stored)) {
+      return stored;
+    }
+  } catch (error) {
+    console.warn("Failed to read stored locale", error);
+  }
+
+  const navigatorLocales = Array.isArray(navigator.languages)
+    ? navigator.languages
+    : [navigator.language].filter(Boolean);
+
+  const matched = navigatorLocales
+    .map((value) => (value || "").toLowerCase())
+    .find((value) => SUPPORTED_LOCALES.some((locale) => value.startsWith(locale.toLowerCase())));
+
+  if (matched) {
+    const exact = SUPPORTED_LOCALES.find((locale) => matched.startsWith(locale.toLowerCase()));
+    if (exact) {
+      return exact;
+    }
+  }
+
+  return DEFAULT_LOCALE;
+}
+
+function initializeLocale() {
+  const initialLocale = determineInitialLocale();
+  setLocale(initialLocale, { persist: false });
+}
+
+function handleLocaleButtonClick(event) {
+  const target = event.currentTarget;
+  if (!(target instanceof HTMLElement)) return;
+  const locale = target.dataset.lang;
+  if (!locale || locale === currentLocale) return;
+  setLocale(locale);
+}
+
+function registerLocaleSwitcher() {
+  languageButtons.forEach((button) => {
+    button.addEventListener("click", handleLocaleButtonClick);
+  });
+}
+
+registerLocaleSwitcher();
+initializeLocale();
 
 const MODEL_STORAGE_KEY = "claudify:selectedGeminiModel";
 let availableModels = [];
@@ -101,18 +843,21 @@ let playlistsLoading = false;
 let cachedUserPlaylists = [];
 let chatPlaylistLoading = false;
 
-const INITIAL_ASSISTANT_MESSAGE =
-  "Hey! Tell me the vibe, context, or inspiration you're exploring and I'll bring ideas, potential tags, and song examples.";
-const THEME_EMPTY_MESSAGE = "No tags yet. Start chatting with the model!";
-const SONG_EMPTY_MESSAGE = "When suggestions arrive, they’ll show up here.";
+function getInitialAssistantMessage() {
+  return t("chat.initialMessage");
+}
+
 const MAX_CHAT_HISTORY = 12;
 
+let initialAssistantMessage = getInitialAssistantMessage();
+
 const chatState = {
-  messages: [{ role: "assistant", content: INITIAL_ASSISTANT_MESSAGE }],
+  messages: [{ role: "assistant", content: initialAssistantMessage }],
   themeTags: [],
   songTags: [],
   playlistContext: null,
   didSendPlaylistContext: false,
+  initialAssistantMessage,
 };
 
 const tickerState = {
@@ -135,32 +880,9 @@ const placeholderSongs = [
   "Cascade Memoirs — Aurora City",
 ];
 
-const loadingSequences = {
-  preview: [
-    "Calling Gemini",
-    "Curating themed playlists",
-    "Finding matching Spotify tracks",
-    "Building playlist embeds",
-  ],
-  custom: [
-    "Reading your prompt",
-    "Curating the perfect sequence",
-    "Matching tracks on Spotify",
-    "Publishing your playlist",
-  ],
-  customUpgrade: [
-    "Reading your prompt",
-    "Curating the perfect sequence",
-    "Matching tracks on Spotify",
-    "Refreshing your playlist",
-  ],
-  genre: [
-    "Loading liked songs",
-    "Collecting artist genres",
-    "Building playlists by style",
-    "Ready to listen",
-  ],
-};
+function getLoadingSequence(type) {
+  return tList(`loading.${type}`);
+}
 
 function clearStatusTimeouts() {
   statusTimeouts.forEach((timeoutId) => clearTimeout(timeoutId));
@@ -217,7 +939,7 @@ function setTickerSongs(
   if (!source.length) {
     const span = document.createElement("span");
     span.className = "ticker__item";
-    span.textContent = "Waiting for tracks…";
+    span.textContent = t("live.waiting");
     tickerInner.append(span);
   } else {
     const display = [];
@@ -334,7 +1056,7 @@ function resetLiveStatus() {
     liveStatus.hidden = true;
     liveStatus.classList.remove("is-error");
   }
-  setLiveStatusLabel("Tuning Gemini's frequency…");
+  setLiveStatusLabel(t("live.tuning"));
   if (statusSteps) {
     statusSteps.innerHTML = "";
   }
@@ -351,13 +1073,13 @@ function startLiveStatus(type) {
   liveStatus.hidden = false;
   liveStatus.classList.remove("is-error");
   tickerState.operation = type;
-  const sequence = loadingSequences[type] || [];
+  const sequence = getLoadingSequence(type);
   renderStatusSteps(sequence);
   clearStatusTimeouts();
   stopTickerReveal();
   startPlaceholderTicker();
   if (!sequence.length) {
-    setLiveStatusLabel("Creating playlists…");
+    setLiveStatusLabel(t("live.creating"));
     return;
   }
 
@@ -383,7 +1105,10 @@ function completeLiveStatus(songTitles, options = {}) {
     item.classList.remove("is-active");
     item.classList.add("is-complete");
   });
-  setLiveStatusLabel(label || "Playlists ready!");
+  const displayLabel = label
+    ? t(label, {}, { fallback: label })
+    : t("live.ready");
+  setLiveStatusLabel(displayLabel);
 
   const incomingSongs = Array.isArray(songTitles)
     ? songTitles.filter(Boolean)
@@ -422,7 +1147,10 @@ function failLiveStatus(message, options = {}) {
   clearStatusTimeouts();
   stopTickerReveal();
   liveStatus.classList.add("is-error");
-  setLiveStatusLabel(message || "Something went wrong");
+  const displayMessage = message
+    ? t(message, {}, { fallback: message })
+    : t("live.error");
+  setLiveStatusLabel(displayMessage);
   setTickerSongs([], { animate: false, allowPlaceholder: true });
   setTimeout(() => {
     if (liveStatus) {
@@ -435,10 +1163,13 @@ function failLiveStatus(message, options = {}) {
 
 function handleLikedStart(event) {
   const data = parseEventData(event);
+  const label = data.label
+    ? t(data.label, {}, { fallback: data.label })
+    : t("live.liked.loading");
   switchTickerMode("liked", {
     requestId: data.requestId || null,
     operation: data.operation || tickerState.operation,
-    label: "Loading liked songs…",
+    label,
   });
 }
 
@@ -447,10 +1178,13 @@ function handleLikedSong(event) {
   const requestId = data.requestId || null;
   if (!isCurrentRequest("liked", requestId)) {
     if (!tickerState.requestId) {
+      const label = data.label
+        ? t(data.label, {}, { fallback: data.label })
+        : t("live.liked.loading");
       switchTickerMode("liked", {
         requestId,
         operation: data.operation || tickerState.operation,
-        label: "Loading liked songs…",
+        label,
       });
     } else {
       return;
@@ -477,11 +1211,11 @@ function handleLikedComplete(event) {
       ? data.total
       : undefined;
 
-  setLiveStatusLabel(
+  const message =
     typeof total === "number"
-      ? `Liked songs loaded (${total})`
-      : "Liked songs loaded"
-  );
+      ? t("Liked songs loaded ({total})", { total }, { fallback: `Liked songs loaded (${total})` })
+      : t("live.liked.loaded");
+  setLiveStatusLabel(message);
 
   if (currentTickerSongs.length) {
     setTickerSongs(currentTickerSongs, { animate: true, allowPlaceholder: false });
@@ -492,32 +1226,18 @@ function handleLikedComplete(event) {
 
 function handleGenreStart(event) {
   const data = parseEventData(event);
+  const label = data.label
+    ? t(data.label, {}, { fallback: data.label })
+    : t("live.genre.organizing");
   switchTickerMode("genre", {
     requestId: data.requestId || null,
     operation: data.operation || tickerState.operation,
-    label: data.label || "Organizing by genre…",
+    label,
     allowPlaceholder: true,
   });
 
   if (genreStatus) {
-    const totalSongs =
-      typeof data.totalSongs === "number" && Number.isFinite(data.totalSongs)
-        ? data.totalSongs
-        : undefined;
-    const totalArtists =
-      typeof data.totalArtists === "number" && Number.isFinite(data.totalArtists)
-        ? data.totalArtists
-        : undefined;
-
-    const songText = totalSongs
-      ? `${totalSongs} ${totalSongs === 1 ? "liked song" : "liked songs"}`
-      : "Your liked songs";
-    const artistText =
-      typeof totalArtists === "number" && totalArtists > 0
-        ? ` from ${totalArtists} ${totalArtists === 1 ? "artist" : "artists"}`
-        : "";
-
-    showStatus(genreStatus, `Grouping ${songText}${artistText}…`, "");
+    showStatus(genreStatus, t("Grouping your liked songs…"), "");
   }
 }
 
@@ -532,9 +1252,19 @@ function handleGenreProgress(event) {
   const total = typeof data.total === "number" ? data.total : undefined;
 
   if (stage === "artists" && processed !== undefined && total !== undefined) {
-    setLiveStatusLabel(`Collecting genres (${processed}/${total} artists)`);
+    setLiveStatusLabel(
+      t("Collecting genres ({processed}/{total} artists)", {
+        processed,
+        total,
+      })
+    );
   } else if (stage === "grouping" && processed !== undefined && total !== undefined) {
-    setLiveStatusLabel(`Building playlists (${processed}/${total} songs)`);
+    setLiveStatusLabel(
+      t("Building playlists ({processed}/{total} songs)", {
+        processed,
+        total,
+      })
+    );
   }
 
   if (Array.isArray(data.songs)) {
@@ -553,26 +1283,37 @@ function handleGenreComplete(event) {
   }
 
   const songs = Array.isArray(data.songs) ? data.songs : undefined;
+  const label = data.label
+    ? t(data.label, {}, { fallback: data.label })
+    : t("live.genre.ready");
   completeLiveStatus(songs, {
     requestId: data.requestId || null,
-    label: data.label || "Genre playlists ready!",
+    label,
   });
 
   if (genreStatus && typeof data.totalPlaylists === "number") {
     const totalSongs = typeof data.totalSongs === "number" ? data.totalSongs : undefined;
     const summaryText = totalSongs
-      ? `Done! ${data.totalPlaylists} genre playlists with ${totalSongs} songs.`
-      : `Done! ${data.totalPlaylists} genre playlists.`;
+      ? t("Done! {playlists} genre playlists with {songs} songs.", {
+          playlists: data.totalPlaylists,
+          songs: totalSongs,
+        })
+      : t("Done! {playlists} genre playlists.", {
+          playlists: data.totalPlaylists,
+        });
     showStatus(genreStatus, summaryText, "success");
   }
 }
 
 function handleGeminiStart(event) {
   const data = parseEventData(event);
+  const label = data.label
+    ? t(data.label, {}, { fallback: data.label })
+    : t("live.gemini.suggesting");
   switchTickerMode("gemini", {
     requestId: data.requestId || null,
     operation: data.operation || tickerState.operation,
-    label: data.label || "Gemini is suggesting tracks…",
+    label,
   });
 }
 
@@ -592,7 +1333,7 @@ function handleGeminiSong(event) {
 
   if (data.playlist && tickerState.lastPlaylist !== data.playlist) {
     tickerState.lastPlaylist = data.playlist;
-    setLiveStatusLabel(`Gemini is curating “${data.playlist}”`);
+    setLiveStatusLabel(t("live.gemini.curating", { name: data.playlist }));
   }
 }
 
@@ -602,9 +1343,12 @@ function handleGeminiComplete(event) {
     return;
   }
   const songs = Array.isArray(data.songs) ? data.songs : undefined;
+  const label = data.label
+    ? t(data.label, {}, { fallback: data.label })
+    : undefined;
   completeLiveStatus(songs, {
     requestId: data.requestId || null,
-    label: data.label,
+    label,
   });
 }
 
@@ -618,7 +1362,7 @@ function handleStatusMessage(event) {
     return;
   }
   if (typeof data.message === "string" && data.message.length) {
-    setLiveStatusLabel(data.message);
+    setLiveStatusLabel(t(data.message, {}, { fallback: data.message }));
   }
 }
 
@@ -692,7 +1436,13 @@ const getSelectedModel = () => {
 function updateModelStatus(model) {
   if (!modelStatus) return;
   if (!model) {
-    showStatus(modelStatus, "Select a Gemini model to start generating.", "error");
+    showStatus(
+      modelStatus,
+      t("Select a Gemini model to start generating.", {}, {
+        fallback: "Select a Gemini model to start generating.",
+      }),
+      "error"
+    );
     return;
   }
 
@@ -700,11 +1450,11 @@ function updateModelStatus(model) {
   const outputLimit = formatTokenLimit(model.outputTokenLimit);
   const limitText =
     inputLimit && outputLimit
-      ? `Tokens in/out: ${inputLimit} / ${outputLimit}`
+      ? t("Tokens in/out: {input} / {output}", { input: inputLimit, output: outputLimit })
       : inputLimit
-      ? `Input tokens: ${inputLimit}`
+      ? t("Input tokens: {value}", { value: inputLimit })
       : outputLimit
-      ? `Output tokens: ${outputLimit}`
+      ? t("Output tokens: {value}", { value: outputLimit })
       : "";
 
   const detail = [model.displayName || model.name, limitText, model.description]
@@ -723,8 +1473,16 @@ async function loadGeminiModels() {
 
   availableModels = [];
   modelSelect.disabled = true;
-  showStatus(modelStatus, "Loading available Gemini models…", "");
-  modelSelect.innerHTML = '<option value="">Loading…</option>';
+  showStatus(
+    modelStatus,
+    t("Loading available Gemini models…", {}, { fallback: "Loading available Gemini models…" }),
+    ""
+  );
+  modelSelect.innerHTML = "";
+  const loadingOption = document.createElement("option");
+  loadingOption.value = "";
+  loadingOption.textContent = t("Loading…", {}, { fallback: "Loading…" });
+  modelSelect.append(loadingOption);
 
   try {
     const response = await fetch("/gemini-models");
@@ -762,22 +1520,32 @@ async function loadGeminiModels() {
     modelSelect.disabled = false;
     modelsLoaded = true;
   } catch (error) {
-    modelSelect.innerHTML = '<option value="">Unavailable</option>';
+    modelSelect.innerHTML = "";
+    const unavailableOption = document.createElement("option");
+    unavailableOption.value = "";
+    unavailableOption.textContent = t("Unavailable", {}, { fallback: "Unavailable" });
+    modelSelect.append(unavailableOption);
     modelSelect.disabled = true;
-    showStatus(modelStatus, error.message || "Could not load Gemini models", "error");
+    const message = error?.message
+      ? t(error.message, {}, { fallback: error.message })
+      : t("Could not load Gemini models");
+    showStatus(modelStatus, message, "error");
   } finally {
     modelsLoading = false;
   }
 }
 
-const createLoader = (label = "Loading playlists") => {
+const createLoader = (label) => {
   const loader = document.createElement("div");
   loader.className = "loader";
   loader.setAttribute("role", "status");
   loader.setAttribute("aria-live", "polite");
+  const resolvedLabel = label
+    ? t(label, {}, { fallback: label })
+    : t("Loading playlists", {}, { fallback: "Loading playlists" });
   loader.innerHTML = `
     <span class="loader__orb"></span>
-    <span class="loader__text">${label}</span>
+    <span class="loader__text">${resolvedLabel}</span>
   `;
   return loader;
 };
@@ -825,17 +1593,32 @@ const findPlaylistOption = (value) => {
 function updatePlaylistStatusForValue(value) {
   const trimmed = value ? value.trim() : "";
   if (!trimmed) {
-    setPlaylistSelectStatus("Paste a link or choose a playlist (optional)", "");
+    setPlaylistSelectStatus(
+      t("Paste a link or choose a playlist (optional)", {}, {
+        fallback: "Paste a link or choose a playlist (optional)",
+      }),
+      ""
+    );
     return;
   }
 
   const option = findPlaylistOption(trimmed);
   if (option) {
     const label = option.dataset?.name || option.textContent || "your playlist";
-    setPlaylistSelectStatus(`We’ll enhance “${label}”`, "success");
+    setPlaylistSelectStatus(
+      t("We’ll enhance “{label}”", { label }, { fallback: `We’ll enhance “${label}”` }),
+      "success"
+    );
   } else {
     setPlaylistSelectStatus(
-      "Using a custom link/ID. Make sure the playlist is yours or collaborative.",
+      t(
+        "Using a custom link/ID. Make sure the playlist is yours or collaborative.",
+        {},
+        {
+          fallback:
+            "Using a custom link/ID. Make sure the playlist is yours or collaborative.",
+        }
+      ),
       ""
     );
   }
@@ -897,7 +1680,11 @@ function appendChatMessage(role, content) {
 
   const sender = document.createElement("span");
   sender.className = "chat-message__sender";
-  sender.textContent = role === "assistant" ? "Geminify" : "You";
+  sender.textContent = t(
+    role === "assistant" ? "chat.sender.assistant" : "chat.sender.user",
+    {},
+    { fallback: role === "assistant" ? "Geminify" : "You" }
+  );
 
   const body = document.createElement("p");
   body.className = "chat-message__body";
@@ -940,7 +1727,7 @@ function mergeTags(current, incoming) {
   return Array.from(map.values());
 }
 
-function renderTagGroup(container, tags, group, emptyMessage) {
+function renderTagGroup(container, tags, group, emptyMessageKey) {
   if (!container) return;
   container.innerHTML = "";
 
@@ -948,7 +1735,7 @@ function renderTagGroup(container, tags, group, emptyMessage) {
     container.dataset.empty = "true";
     const empty = document.createElement("p");
     empty.className = "tag-empty";
-    empty.textContent = emptyMessage;
+    empty.textContent = t(emptyMessageKey, {}, { fallback: emptyMessageKey });
     container.append(empty);
     return;
   }
@@ -963,7 +1750,10 @@ function renderTagGroup(container, tags, group, emptyMessage) {
     button.className = "tag-pill";
     button.dataset.group = group;
     button.dataset.tag = trimmed;
-  button.setAttribute("aria-label", `Remove tag ${trimmed}`);
+    button.setAttribute(
+      "aria-label",
+      t("Remove tag {tag}", { tag: trimmed }, { fallback: `Remove tag ${trimmed}` })
+    );
 
     const label = document.createElement("span");
     label.className = "tag-pill__label";
@@ -988,14 +1778,21 @@ function populateChatPlaylistSelect(playlists) {
   const placeholder = document.createElement("option");
   placeholder.value = "";
   placeholder.textContent = playlists.length
-    ? "Select a playlist to enhance (optional)"
-    : "No playlists found";
+    ? t("Select a playlist to enhance (optional)", {}, {
+        fallback: "Select a playlist to enhance (optional)",
+      })
+    : t("No playlists found", {}, { fallback: "No playlists found" });
   chatPlaylistSelect.append(placeholder);
 
   if (!playlists.length) {
     chatPlaylistSelect.disabled = true;
     chatPlaylistSelect.value = "";
-    setChatPlaylistHint("We couldn't find playlists in your account yet.", "");
+    setChatPlaylistHint(
+      t("We couldn't find playlists in your account yet.", {}, {
+        fallback: "We couldn't find playlists in your account yet.",
+      }),
+      ""
+    );
     return;
   }
 
@@ -1005,7 +1802,7 @@ function populateChatPlaylistSelect(playlists) {
     option.value = playlist.id;
     const trackCount = typeof playlist.trackCount === "number" ? playlist.trackCount : undefined;
     option.textContent = trackCount
-      ? `${playlist.name} (${trackCount} ${trackCount === 1 ? "song" : "songs"})`
+      ? `${playlist.name} (${trackCount} ${getCopyLabel("song", trackCount)})`
       : playlist.name;
     option.dataset.name = playlist.name;
     chatPlaylistSelect.append(option);
@@ -1034,11 +1831,26 @@ function updateChatPlaylistHint() {
       ? chatState.playlistContext.songs.length
       : 0;
     setChatPlaylistHint(
-      `Enhancing “${name}” with ${count} ${count === 1 ? "song" : "songs"} loaded.`,
+      t(
+        "Enhancing “{name}” with {count} {songsLabel} loaded.",
+        {
+          name,
+          count,
+          songsLabel: getCopyLabel("song", count),
+        },
+        {
+          fallback: `Enhancing “${name}” with ${count} ${count === 1 ? "song" : "songs"} loaded.`,
+        }
+      ),
       "success"
     );
   } else {
-    setChatPlaylistHint(`Select “${name}” to load songs for enhancement.`, "");
+    setChatPlaylistHint(
+      t("Select “{name}” to load songs for enhancement.", { name }, {
+        fallback: `Select “${name}” to load songs for enhancement.`,
+      }),
+      ""
+    );
   }
 }
 
@@ -1048,12 +1860,18 @@ async function loadChatPlaylistDetails(playlistId) {
   chatPlaylistLoading = true;
   const selectedOption = chatPlaylistSelect?.options[chatPlaylistSelect.selectedIndex];
   const name = selectedOption?.dataset?.name || selectedOption?.textContent || "playlist";
-  setChatPlaylistHint(`Loading songs from “${name}”…`, "");
+  setChatPlaylistHint(
+    t("Loading songs from “{name}”…", { name }, { fallback: `Loading songs from “${name}”…` }),
+    ""
+  );
 
   try {
     const response = await fetch(`/playlist-details?id=${encodeURIComponent(playlistId)}`);
     if (response.status === 401) {
-      throw Object.assign(new Error("Log in with Spotify to load this playlist."), { status: 401 });
+      throw Object.assign(
+        new Error("Log in with Spotify to load this playlist."),
+        { status: 401 }
+      );
     }
     if (response.status === 403) {
       throw Object.assign(
@@ -1092,7 +1910,9 @@ async function loadChatPlaylistDetails(playlistId) {
   } catch (error) {
     console.error("Chat playlist details error", error);
     chatState.playlistContext = null;
-    const message = error?.message || "Couldn't load playlist songs.";
+    const message = error?.message
+      ? t(error.message, {}, { fallback: error.message })
+      : t("Couldn't load playlist songs.");
     setChatPlaylistHint(message, "error");
   } finally {
     chatPlaylistLoading = false;
@@ -1115,24 +1935,65 @@ function handleChatPlaylistSelectChange() {
 
 function buildChatPlaylistPrompt() {
   const sections = [
-    "Create a cohesive Spotify playlist that reflects this brainstorming session. Capture mood, pacing, and storytelling across 20-25 tracks.",
+    t(
+      "Create a cohesive Spotify playlist that reflects this brainstorming session. Capture mood, pacing, and storytelling across 20-25 tracks.",
+      {},
+      {
+        fallback:
+          "Create a cohesive Spotify playlist that reflects this brainstorming session. Capture mood, pacing, and storytelling across 20-25 tracks.",
+      }
+    ),
   ];
 
   if (chatState.themeTags.length) {
-    sections.push(`Focus tags: ${chatState.themeTags.join(", ")}`);
+    sections.push(
+      t(
+        "Focus tags: {tags}",
+        { tags: chatState.themeTags.join(", ") },
+        { fallback: `Focus tags: ${chatState.themeTags.join(", ")}` }
+      )
+    );
   }
 
   if (chatState.songTags.length) {
-    sections.push(`Song references to echo or build around: ${chatState.songTags.join(", ")}`);
+    sections.push(
+      t(
+        "Song references to echo or build around: {tags}",
+        { tags: chatState.songTags.join(", ") },
+        {
+          fallback: `Song references to echo or build around: ${chatState.songTags.join(", ")}`,
+        }
+      )
+    );
   }
 
   if (chatState.playlistContext) {
     const { name, description, songs } = chatState.playlistContext;
     const count = Array.isArray(songs) ? songs.length : 0;
-    const header = `Existing playlist to enhance: “${name}”${count ? ` (${count} ${count === 1 ? "song" : "songs"})` : ""}.`;
+    const countLabel = count
+      ? t(
+          " ({count} {songsLabel})",
+          {
+            count,
+            songsLabel: getCopyLabel("song", count),
+          },
+          {
+            fallback: ` (${count} ${count === 1 ? "song" : "songs"})`,
+          }
+        )
+      : "";
+    const header = t(
+      "Existing playlist to enhance: “{name}”{countLabel}.",
+      { name, countLabel },
+      {
+        fallback: `Existing playlist to enhance: “${name}”${countLabel}.`,
+      }
+    );
     const details = [];
     if (description) {
-      details.push(`Description: ${description}`);
+      details.push(
+        t("Description: {description}", { description }, { fallback: `Description: ${description}` })
+      );
     }
 
     if (count) {
@@ -1141,7 +2002,13 @@ function buildChatPlaylistPrompt() {
         .map((song) => `- ${song.title} — ${song.artist}`)
         .join("\n");
       if (highlights) {
-        details.push(`Current track highlights:\n${highlights}`);
+        details.push(
+          t(
+            "Current track highlights:\n{highlights}",
+            { highlights },
+            { fallback: `Current track highlights:\n${highlights}` }
+          )
+        );
       }
     }
 
@@ -1151,16 +2018,25 @@ function buildChatPlaylistPrompt() {
   const recentMessages = chatState.messages.slice(-MAX_CHAT_HISTORY);
   const conversation = recentMessages
     .filter((message, index) => {
-      if (index === 0 && message.role === "assistant" && message.content === INITIAL_ASSISTANT_MESSAGE) {
+      if (
+        index === 0 &&
+        message.role === "assistant" &&
+        message.content === chatState.initialAssistantMessage
+      ) {
         return false;
       }
       return true;
     })
-    .map((message) => `${message.role === "assistant" ? "Assistant" : "User"}: ${message.content}`)
+    .map((message) => {
+      const speaker = message.role === "assistant" ? t("chat.sender.assistant") : t("chat.sender.user");
+      return `${speaker}: ${message.content}`;
+    })
     .join("\n");
 
   if (conversation) {
-    sections.push(`Conversation notes:\n${conversation}`);
+    sections.push(
+      t("Conversation notes:\n{conversation}", { conversation }, { fallback: `Conversation notes:\n${conversation}` })
+    );
   }
 
   return sections.join("\n\n");
@@ -1172,10 +2048,10 @@ function removeTag(group, value) {
 
   if (group === "theme") {
     chatState.themeTags = chatState.themeTags.filter((tag) => tag.trim().toLowerCase() !== normalized);
-    renderTagGroup(themeTagList, chatState.themeTags, "theme", THEME_EMPTY_MESSAGE);
+    renderTagGroup(themeTagList, chatState.themeTags, "theme", "chat.tags.emptyTheme");
   } else if (group === "song") {
     chatState.songTags = chatState.songTags.filter((tag) => tag.trim().toLowerCase() !== normalized);
-    renderTagGroup(songTagList, chatState.songTags, "song", SONG_EMPTY_MESSAGE);
+    renderTagGroup(songTagList, chatState.songTags, "song", "chat.tags.emptySong");
   }
 }
 
@@ -1190,7 +2066,9 @@ function handleTagListClick(event) {
 }
 
 function resetChat() {
-  chatState.messages = [{ role: "assistant", content: INITIAL_ASSISTANT_MESSAGE }];
+  initialAssistantMessage = getInitialAssistantMessage();
+  chatState.initialAssistantMessage = initialAssistantMessage;
+  chatState.messages = [{ role: "assistant", content: initialAssistantMessage }];
   chatState.themeTags = [];
   chatState.songTags = [];
   chatState.didSendPlaylistContext = false;
@@ -1201,11 +2079,11 @@ function resetChat() {
 
   if (chatLog) {
     chatLog.innerHTML = "";
-    appendChatMessage("assistant", INITIAL_ASSISTANT_MESSAGE);
+    appendChatMessage("assistant", initialAssistantMessage);
   }
 
-  renderTagGroup(themeTagList, chatState.themeTags, "theme", THEME_EMPTY_MESSAGE);
-  renderTagGroup(songTagList, chatState.songTags, "song", SONG_EMPTY_MESSAGE);
+  renderTagGroup(themeTagList, chatState.themeTags, "theme", "chat.tags.emptyTheme");
+  renderTagGroup(songTagList, chatState.songTags, "song", "chat.tags.emptySong");
 
   setChatStatus("", "");
   setChatCreationStatus("", "");
@@ -1245,12 +2123,12 @@ async function handleChatSubmit(event) {
   if (!chatInput) return;
   const message = chatInput.value.trim();
   if (!message) {
-    setChatStatus("Write a message before sending.", "error");
+    setChatStatus(t("Write a message before sending."), "error");
     return;
   }
 
   if (chatPlaylistLoading) {
-    setChatStatus("Hold on a moment—still loading playlist details.", "error");
+    setChatStatus(t("Hold on a moment—still loading playlist details."), "error");
     return;
   }
 
@@ -1261,11 +2139,11 @@ async function handleChatSubmit(event) {
   chatState.messages.push({ role: "user", content: message });
   appendChatMessage("user", message);
   chatInput.value = "";
-  setChatStatus("Checking with Gemini…", "");
+  setChatStatus(t("Checking with Gemini…"), "");
 
   if (chatSendButton) {
     chatSendButton.disabled = true;
-    chatSendButton.textContent = "Sending…";
+    chatSendButton.textContent = t("Sending…");
   }
 
   try {
@@ -1305,23 +2183,28 @@ async function handleChatSubmit(event) {
       chatState.songTags = mergeTags(chatState.songTags, incomingSongs);
     }
 
-    renderTagGroup(themeTagList, chatState.themeTags, "theme", THEME_EMPTY_MESSAGE);
-    renderTagGroup(songTagList, chatState.songTags, "song", SONG_EMPTY_MESSAGE);
+  renderTagGroup(themeTagList, chatState.themeTags, "theme", "chat.tags.emptyTheme");
+  renderTagGroup(songTagList, chatState.songTags, "song", "chat.tags.emptySong");
 
     if (reply) {
-      setChatStatus("Reply received!", "success");
+      setChatStatus(t("Reply received!"), "success");
     } else if (!incomingThemes.length && !incomingSongs.length) {
-      setChatStatus("Conversation refreshed, no new tags this time.", "");
+      setChatStatus(t("Conversation refreshed, no new tags this time."), "");
     } else {
-      setChatStatus("Tags updated!", "success");
+      setChatStatus(t("Tags updated!"), "success");
     }
   } catch (error) {
     console.error("Chat error", error);
-    setChatStatus(error.message || "We couldn’t chat with the model right now.", "error");
+    const fallback = t("We couldn’t chat with the model right now.");
+    const message =
+      typeof error?.message === "string"
+        ? t(error.message, {}, { fallback: error.message })
+        : fallback;
+    setChatStatus(message || fallback, "error");
   } finally {
     if (chatSendButton) {
       chatSendButton.disabled = false;
-      chatSendButton.textContent = "Send";
+      chatSendButton.textContent = t("chat.form.send");
     }
   }
 }
@@ -1356,7 +2239,7 @@ async function handleChatPlaylistCreation() {
 
   if (!hasConversation && !hasTags) {
     setChatCreationStatus(
-      "Chat with Gemini or capture some tags before creating a playlist.",
+      t("Chat with Gemini or capture some tags before creating a playlist."),
       "error"
     );
     return;
@@ -1365,16 +2248,17 @@ async function handleChatPlaylistCreation() {
   const prompt = buildChatPlaylistPrompt();
   if (!prompt.trim()) {
     setChatCreationStatus(
-      "We need more chat context or tags to craft a playlist.",
+      t("We need more chat context or tags to craft a playlist."),
       "error"
     );
     return;
   }
 
-  const originalLabel = (chatCreatePlaylistButton.textContent || "").trim() || "Create playlist from chat";
+  const originalLabel =
+    (chatCreatePlaylistButton.textContent || "").trim() || t("chat.form.create");
   chatCreatePlaylistButton.disabled = true;
-  chatCreatePlaylistButton.textContent = "Creating...";
-  setChatCreationStatus("Creating a playlist from your chat notes...", "");
+  chatCreatePlaylistButton.textContent = t("Creating…");
+  setChatCreationStatus(t("Creating a playlist from your chat…"), "");
 
   resetLiveStatus();
   startLiveStatus("custom");
@@ -1411,7 +2295,7 @@ async function handleChatPlaylistCreation() {
 
     prependPlaylist(playlist);
     setChatCreationStatus(
-      "Playlist created from your chat! Opening the playlists view...",
+      t("Playlist created from your chat! Opening the playlists view…"),
       "success"
     );
 
@@ -1427,7 +2311,9 @@ async function handleChatPlaylistCreation() {
       .slice(0, 40);
 
     completeLiveStatus(songTitles, {
-      label: playlist.upgraded ? "Playlist refreshed!" : "Custom playlist ready!",
+      label: playlist.upgraded
+        ? t("Playlist refreshed!")
+        : t("Custom playlist ready!"),
     });
 
     switchView("playlists");
@@ -1435,8 +2321,10 @@ async function handleChatPlaylistCreation() {
     console.error("Chat playlist creation error", error);
     const message =
       error?.status === 401
-        ? "Log in with Spotify to create playlists."
-        : error?.message || "Couldn't create a playlist from chat.";
+        ? t("Log in with Spotify to create playlists.")
+        : t(error?.message || "Couldn't create a playlist from chat.", {}, {
+            fallback: error?.message || "Couldn't create a playlist from chat.",
+          });
     setChatCreationStatus(message, "error");
     failLiveStatus(message);
   } finally {
@@ -1472,14 +2360,22 @@ async function loadUserPlaylists(options = {}) {
   const originalChatButtonLabel = chatRefreshPlaylistsButton?.textContent;
 
   playlistSelect.disabled = true;
-  playlistSelect.innerHTML = '<option value="">Loading…</option>';
-  setPlaylistSelectStatus("Loading your playlists…", "");
+  playlistSelect.innerHTML = "";
+  const loadingOption = document.createElement("option");
+  loadingOption.value = "";
+  loadingOption.textContent = t("Loading…", {}, { fallback: "Loading…" });
+  playlistSelect.append(loadingOption);
+  setPlaylistSelectStatus(t("Loading your playlists…"), "");
 
   if (chatPlaylistSelect) {
     chatPlaylistSelect.disabled = true;
-    chatPlaylistSelect.innerHTML = '<option value="">Loading…</option>';
+    chatPlaylistSelect.innerHTML = "";
+    const chatLoadingOption = document.createElement("option");
+    chatLoadingOption.value = "";
+    chatLoadingOption.textContent = t("Loading…", {}, { fallback: "Loading…" });
+    chatPlaylistSelect.append(chatLoadingOption);
   }
-  setChatPlaylistHint("Loading your playlists…", "");
+  setChatPlaylistHint(t("Loading your playlists…"), "");
 
   if (refreshPlaylistsButton) {
     refreshPlaylistsButton.disabled = true;
@@ -1498,21 +2394,28 @@ async function loadUserPlaylists(options = {}) {
   try {
     const response = await fetch("/user-playlists");
     if (response.status === 401 || response.status === 403) {
-      playlistSelect.innerHTML =
-        '<option value="">Sign in to load your playlists</option>';
+      playlistSelect.innerHTML = "";
+      const signinOption = document.createElement("option");
+      signinOption.value = "";
+      signinOption.textContent = t("Sign in to load your playlists");
+      playlistSelect.append(signinOption);
       const message =
         response.status === 403
-          ? "We need new permissions to list your playlists. Click ‘Log in with Spotify’."
-          : "Sign in with Spotify to choose an existing playlist.";
+          ? t("We need new permissions to list your playlists. Click ‘Log in with Spotify’.")
+          : t("Sign in with Spotify to choose an existing playlist.");
       setPlaylistSelectStatus(message, "error");
       playlistSelect.disabled = true;
       loginButton?.focus();
       playlistsLoaded = false;
       if (chatPlaylistSelect) {
-        chatPlaylistSelect.innerHTML = '<option value="">Sign in to load playlists</option>';
+        chatPlaylistSelect.innerHTML = "";
+        const chatSigninOption = document.createElement("option");
+        chatSigninOption.value = "";
+        chatSigninOption.textContent = t("Sign in to load your playlists");
+        chatPlaylistSelect.append(chatSigninOption);
         chatPlaylistSelect.disabled = true;
       }
-      setChatPlaylistHint("Sign in with Spotify to enhance an existing playlist.", "error");
+      setChatPlaylistHint(t("Sign in with Spotify to enhance an existing playlist."), "error");
       return;
     }
 
@@ -1530,23 +2433,29 @@ async function loadUserPlaylists(options = {}) {
     if (!playlists.length) {
       const option = document.createElement("option");
       option.value = "";
-      option.textContent = "No playlists found";
+      option.textContent = t("No playlists found");
       option.selected = true;
       playlistSelect.append(option);
-      setPlaylistSelectStatus("We couldn't find playlists in your account yet.", "");
+      setPlaylistSelectStatus(t("We couldn't find playlists in your account yet."), "");
       playlistSelect.disabled = true;
       if (chatPlaylistSelect) {
-        chatPlaylistSelect.innerHTML = '<option value="">No playlists found</option>';
+        chatPlaylistSelect.innerHTML = "";
+        const chatEmptyOption = document.createElement("option");
+        chatEmptyOption.value = "";
+        chatEmptyOption.textContent = t("No playlists found");
+        chatPlaylistSelect.append(chatEmptyOption);
         chatPlaylistSelect.disabled = true;
       }
-      setChatPlaylistHint("We couldn't find playlists in your account yet.", "");
+      setChatPlaylistHint(t("We couldn't find playlists in your account yet."), "");
       playlistsLoaded = true;
       return;
     }
 
     const placeholder = document.createElement("option");
     placeholder.value = "";
-    placeholder.textContent = "Select a playlist (optional)";
+    placeholder.textContent = t("Select a playlist (optional)", {}, {
+      fallback: "Select a playlist (optional)",
+    });
     placeholder.selected = true;
     playlistSelect.append(placeholder);
 
@@ -1568,26 +2477,35 @@ async function loadUserPlaylists(options = {}) {
     if (triggeredByFormButton) {
       if (!targetPlaylistInput || !targetPlaylistInput.value.trim()) {
         setPlaylistSelectStatus(
-          "Playlists refreshed! Pick one to enhance.",
+          t("Playlists refreshed! Pick one to enhance."),
           "success"
         );
       }
     } else if (triggeredByChatButton) {
-      setChatPlaylistHint("Playlists refreshed! Pick one to enhance.", "success");
+      setChatPlaylistHint(t("Playlists refreshed! Pick one to enhance."), "success");
     } else if (!targetPlaylistInput || !targetPlaylistInput.value.trim()) {
       setPlaylistSelectStatus(
-        "Pick a playlist to enhance or paste a link below.",
+        t("Pick a playlist to enhance or paste a link below."),
         ""
       );
     }
     playlistsLoaded = true;
   } catch (error) {
-    const message = error?.message || "Couldn't load your playlists.";
-    playlistSelect.innerHTML = '<option value="">Load again</option>';
+    const rawMessage = error?.message || "Couldn't load your playlists.";
+    const message = t(rawMessage, {}, { fallback: rawMessage });
+    playlistSelect.innerHTML = "";
+    const retryOption = document.createElement("option");
+    retryOption.value = "";
+    retryOption.textContent = t("Load again");
+    playlistSelect.append(retryOption);
     setPlaylistSelectStatus(message, "error");
     playlistSelect.disabled = true;
     if (chatPlaylistSelect) {
-      chatPlaylistSelect.innerHTML = '<option value="">Load again</option>';
+      chatPlaylistSelect.innerHTML = "";
+      const chatRetryOption = document.createElement("option");
+      chatRetryOption.value = "";
+      chatRetryOption.textContent = t("Load again");
+      chatPlaylistSelect.append(chatRetryOption);
       chatPlaylistSelect.disabled = true;
     }
     setChatPlaylistHint(message, "error");
@@ -1636,6 +2554,10 @@ function renderPlaylists(playlists) {
   playlists.forEach((playlist) => {
     const card = document.createElement("article");
     card.className = "playlist-card";
+    const previewTitle = t("Playlist preview for {name}", { name: playlist.name }, {
+      fallback: `Playlist preview for ${playlist.name}`,
+    });
+    const openLabel = t("Open in Spotify");
     card.innerHTML = `
       <div>
         <h3>${playlist.name}</h3>
@@ -1645,10 +2567,10 @@ function renderPlaylists(playlists) {
         src="${playlist.embedUrl}"
         allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
         loading="lazy"
-        title="Playlist preview for ${playlist.name}"
+        title="${previewTitle}"
       ></iframe>
       <a class="open-link" href="${playlist.spotifyUrl}" target="_blank" rel="noopener noreferrer">
-        Open in Spotify
+          ${openLabel}
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
           <path d="M5 19L19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
           <path d="M7 5H19V17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1663,6 +2585,10 @@ function prependPlaylist(playlist) {
   const cards = Array.from(resultsContainer.querySelectorAll(".playlist-card"));
   const card = document.createElement("article");
   card.className = "playlist-card";
+  const previewTitle = t("Playlist preview for {name}", { name: playlist.name }, {
+    fallback: `Playlist preview for ${playlist.name}`,
+  });
+  const openLabel = t("Open in Spotify");
   card.innerHTML = `
     <div>
       <h3>${playlist.name}</h3>
@@ -1672,10 +2598,10 @@ function prependPlaylist(playlist) {
       src="${playlist.embedUrl}"
       allow="autoplay; clipboard-write; encrypted-media; fullscreen; picture-in-picture"
       loading="lazy"
-      title="Playlist preview for ${playlist.name}"
+      title="${previewTitle}"
     ></iframe>
     <a class="open-link" href="${playlist.spotifyUrl}" target="_blank" rel="noopener noreferrer">
-      Open in Spotify
+        ${openLabel}
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
         <path d="M5 19L19 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
         <path d="M7 5H19V17" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/>
@@ -1697,7 +2623,7 @@ function renderGenrePlaylists(playlists) {
   if (!Array.isArray(playlists) || playlists.length === 0) {
     const empty = document.createElement("p");
     empty.className = "status";
-    empty.textContent = "No liked songs to group just yet.";
+    empty.textContent = t("No liked songs to group just yet.");
     genreResults.append(empty);
     return;
   }
@@ -1711,18 +2637,18 @@ function renderGenrePlaylists(playlists) {
 
     const title = document.createElement("h3");
     title.className = "genre-card__title";
-  title.textContent = playlist?.name || playlist?.genre || "Genre playlist";
+    title.textContent = playlist?.name || playlist?.genre || t("Genre playlist");
 
     const countLabel = document.createElement("span");
     countLabel.className = "genre-card__count";
     const count = typeof playlist?.count === "number" ? playlist.count : playlist?.songs?.length || 0;
-  countLabel.textContent = `${count} ${count === 1 ? "song" : "songs"}`;
+    countLabel.textContent = `${count} ${getCopyLabel("song", count)}`;
 
     header.append(title, countLabel);
 
     const description = document.createElement("p");
     description.className = "genre-card__description";
-  description.textContent = playlist?.description || "Collection built from your liked songs.";
+    description.textContent = playlist?.description || t("Collection built from your liked songs.");
 
     const details = document.createElement("details");
     if (index === 0) {
@@ -1730,7 +2656,7 @@ function renderGenrePlaylists(playlists) {
     }
 
   const summary = document.createElement("summary");
-  summary.textContent = `View songs (${count})`;
+    summary.textContent = t("View songs ({count})", { count }, { fallback: `View songs (${count})` });
 
     const list = document.createElement("ul");
     list.className = "genre-card__list";
@@ -1740,8 +2666,10 @@ function renderGenrePlaylists(playlists) {
     songs.slice(0, renderLimit).forEach((song, songIndex) => {
       if (!song) return;
       const li = document.createElement("li");
-  const titleText = song?.title || song?.name || `Track ${songIndex + 1}`;
-  const artistText = song?.artist || song?.artistName || "Unknown artist";
+      const titleText = song?.title || song?.name || t("Track {index}", {
+        index: songIndex + 1,
+      }, { fallback: `Track ${songIndex + 1}` });
+      const artistText = song?.artist || song?.artistName || t("Unknown artist");
       li.textContent = `${titleText} — ${artistText}`;
       list.append(li);
     });
@@ -1749,7 +2677,9 @@ function renderGenrePlaylists(playlists) {
     if (songs.length > renderLimit) {
       const more = document.createElement("li");
   more.className = "genre-card__list-more";
-  more.textContent = `… and ${songs.length - renderLimit} more songs`;
+      more.textContent = t("… and {count} more songs", {
+        count: songs.length - renderLimit,
+      }, { fallback: `… and ${songs.length - renderLimit} more songs` });
       list.append(more);
     }
 
@@ -1763,7 +2693,7 @@ function renderGenrePlaylists(playlists) {
 async function handlePreviewGeneration() {
   if (!previewButton) return;
   previewButton.disabled = true;
-  previewButton.textContent = "Generating...";
+  previewButton.textContent = t("Generating…");
   const loader = createLoader();
   resultsContainer.innerHTML = "";
   resultsContainer.append(loader);
@@ -1799,13 +2729,20 @@ async function handlePreviewGeneration() {
       .slice(0, 40);
     completeLiveStatus(songTitles);
   } catch (error) {
-    const status = error.status === 401 ? "Spotify login required" : error.detail || error.message;
+    const status =
+      error.status === 401
+        ? t("Spotify login required", {}, { fallback: "Spotify login required" })
+        : t(error.detail || error.message || "Failed to generate playlists", {}, {
+            fallback: error.detail || error.message || "Failed to generate playlists",
+          });
     showStatus(formStatus, status, "error");
     resultsContainer.innerHTML = "";
-  failLiveStatus(typeof status === "string" ? status : "Generation failed");
+    failLiveStatus(typeof status === "string" ? status : t("Generation failed"));
   } finally {
     previewButton.disabled = false;
-    previewButton.textContent = "Generate Random Playlists";
+    previewButton.textContent = t("hero.playlists.preview", {}, {
+      fallback: "Generate Random Playlists",
+    });
   }
 }
 
@@ -1817,18 +2754,18 @@ async function handleCustomSubmit(event) {
   const playlistTarget = manualTarget || selectedTarget;
 
   if (!promptValue) {
-    showStatus(formStatus, "Please describe the playlist vibe first.", "error");
+    showStatus(formStatus, t("Please describe the playlist vibe first."), "error");
     return;
   }
 
-  showStatus(formStatus, "Spinning up your mix...", "");
+  showStatus(formStatus, t("Spinning up your mix…"), "");
   resetLiveStatus();
   startLiveStatus(playlistTarget ? "customUpgrade" : "custom");
 
   const submitButton = customForm.querySelector("button[type=submit]");
   if (submitButton) {
     submitButton.disabled = true;
-    submitButton.textContent = "Creating...";
+    submitButton.textContent = t("Creating…");
   }
 
   try {
@@ -1861,8 +2798,8 @@ async function handleCustomSubmit(event) {
       showStatus(
         formStatus,
         wasUpgraded
-          ? "Playlist updated with fresh tracks on Spotify!"
-          : "Custom playlist created and added to Spotify!",
+          ? t("Playlist updated with fresh tracks on Spotify!")
+          : t("Custom playlist created and added to Spotify!"),
         "success"
       );
       if (wasUpgraded) {
@@ -1891,13 +2828,20 @@ async function handleCustomSubmit(event) {
       completeLiveStatus(songTitles);
     }
   } catch (error) {
-    const message = error.status === 401 ? "Please log in with Spotify to continue." : error.message;
+    const message =
+      error.status === 401
+        ? t("Please log in with Spotify to continue.")
+        : t(error.message || "Failed to create playlist", {}, {
+            fallback: error.message || "Failed to create playlist",
+          });
     showStatus(formStatus, message, "error");
     failLiveStatus(message);
   } finally {
     if (submitButton) {
       submitButton.disabled = false;
-      submitButton.textContent = "Create Custom Playlist";
+      submitButton.textContent = t("forms.custom.submit", {}, {
+        fallback: "Create Custom Playlist",
+      });
     }
   }
 }
@@ -1906,10 +2850,10 @@ async function handleGenreGrouping() {
   if (!groupGenresButton) return;
   const originalLabel = groupGenresButton.textContent;
   groupGenresButton.disabled = true;
-  groupGenresButton.textContent = "Organizing...";
+  groupGenresButton.textContent = t("Organizing…");
 
   if (genreStatus) {
-    showStatus(genreStatus, "Grouping your liked songs...", "");
+  showStatus(genreStatus, t("Grouping your liked songs…"), "");
   }
 
   resetLiveStatus();
@@ -1917,12 +2861,12 @@ async function handleGenreGrouping() {
   switchTickerMode("genre", {
     requestId: null,
     operation: "genre",
-    label: "Organizing by genre…",
+    label: t("live.genre.organizing"),
     allowPlaceholder: true,
   });
 
   if (genreResults) {
-    const loader = createLoader("Organizing by genre");
+    const loader = createLoader("live.genre.organizing");
     genreResults.innerHTML = "";
     genreResults.append(loader);
   }
@@ -1953,7 +2897,10 @@ async function handleGenreGrouping() {
     if (genreStatus) {
       showStatus(
         genreStatus,
-        `Done! ${totalPlaylists} genre playlists with ${totalSongs} songs.`,
+        t("Done! {playlists} genre playlists with {songs} songs.", {
+          playlists: totalPlaylists,
+          songs: totalSongs,
+        }),
         "success"
       );
     }
@@ -1974,13 +2921,15 @@ async function handleGenreGrouping() {
       .slice(0, 80);
 
     completeLiveStatus(sampleSongs, {
-      label: "Genre playlists ready!",
+      label: t("live.genre.ready"),
     });
   } catch (error) {
     const message =
       error?.status === 401
-        ? "Sign in with Spotify to continue."
-        : error?.message || "Couldn't group songs by genre.";
+        ? t("Sign in with Spotify to continue.")
+        : t(error?.message || "Couldn't group songs by genre.", {}, {
+            fallback: error?.message || "Couldn't group songs by genre.",
+          });
     if (genreStatus) {
       showStatus(genreStatus, message, "error");
     }
@@ -2031,8 +2980,8 @@ chatRefreshPlaylistsButton?.addEventListener("click", () =>
   loadUserPlaylists({ trigger: "manual", source: "chat" })
 );
 
-renderTagGroup(themeTagList, chatState.themeTags, "theme", THEME_EMPTY_MESSAGE);
-renderTagGroup(songTagList, chatState.songTags, "song", SONG_EMPTY_MESSAGE);
+renderTagGroup(themeTagList, chatState.themeTags, "theme", "chat.tags.emptyTheme");
+renderTagGroup(songTagList, chatState.songTags, "song", "chat.tags.emptySong");
 updateChatPlaylistHint();
 switchView("playlists");
 
