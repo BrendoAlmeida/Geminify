@@ -89,6 +89,20 @@ const chatCreatePlaylistButton = document.getElementById("chatCreatePlaylistButt
 const languageSwitcher = document.querySelector(".language-switcher");
 const languageButtons = Array.from(document.querySelectorAll(".language-switcher__option"));
 const htmlElement = document.documentElement;
+const mixPlaylistSelect = document.getElementById("mixPlaylistSelect");
+const mixPlaylistButton = document.getElementById("mixPlaylistButton");
+const mixStatus = document.getElementById("mixStatus");
+const mixResults = document.getElementById("mixResults");
+
+let mixProcessing = false;
+const mixState = {
+  lastPayload: null,
+  statusKey: null,
+  statusReplacements: {},
+  statusFallback: "",
+  statusType: "",
+  pending: false,
+};
 
 const LOCALE_STORAGE_KEY = "claudify:locale";
 const DEFAULT_LOCALE = "en";
@@ -109,6 +123,12 @@ const TRANSLATIONS = {
     nav: {
       aria: "Toggle creation mode",
       playlists: {
+        mix: [
+          "Dialing in BPM ranges",
+          "Checking harmonic keys",
+          "Balancing the energy curve",
+          "Saving the order to Spotify",
+        ],
         title: "Playlist generator",
         hint: "Create or enhance mixes with Gemini + Spotify",
       },
@@ -160,6 +180,55 @@ const TRANSLATIONS = {
       description:
         "Build smart collections from every track you've liked. We'll gather your saved songs, detect dominant styles, and shape ready-to-save playlists per genre.",
       cta: "Group liked songs by genre",
+    },
+    mix: {
+      title: "Mix an existing playlist",
+      description:
+        "Reorder tracks for seamless overlaps by balancing tempo, harmonic key, and energy flow.",
+      selectLabel: "Pick a playlist to mix",
+      selectPlaceholder: "Select a playlist to mix",
+      cta: "Mix playlist for smooth transitions",
+      ctaProgress: "Mixing…",
+      status: {
+        idle: "Pick a playlist to mix.",
+        select: "Select a playlist to mix first.",
+        mixing: "Analyzing tempos, keys, and transitions…",
+        ready: "Ready to mix “{name}”.",
+        success: "“{name}” mixed with seamless transitions!",
+        unchanged: "“{name}” was already optimized for smooth transitions.",
+        login: "Log in with Spotify to mix playlists.",
+      },
+      highlightsTitle: "Transition highlights",
+      summaryTitle: "Mix snapshot",
+      empty: "Mix a playlist to see harmonic transition highlights.",
+      summary: {
+        tempoRange: "Tempo range: {min}–{max} BPM (Δ {delta})",
+        energyArc: "Energy arc: {start} → {peak} → {end}",
+        keySpread: "Key families covered: {families}",
+        keyFallback: "Key families covered: n/a",
+        updated: "Mixed at {time}",
+        limited: "Only the first {count} tracks were re-ordered to keep things fast.",
+      },
+      transition: {
+        bpm: "Δ BPM {delta}",
+        key: "Key {from} → {to} ({match})",
+        energy: "Energy {from} → {to} ({direction})",
+        phrasing: "Phrasing {label}",
+        matchLabels: {
+          perfect: "perfect",
+          smooth: "smooth",
+          contrast: "contrast",
+        },
+        energyLabels: {
+          build: "build",
+          release: "release",
+          steady: "steady",
+        },
+        phrasingLabels: {
+          locked: "aligned",
+          loose: "offset",
+        },
+      },
     },
     results: {
       title: "Your generated playlists",
@@ -254,6 +323,12 @@ const TRANSLATIONS = {
         "Building playlists by style",
         "Ready to listen",
       ],
+      mix: [
+        "Locking BPM ranges",
+        "Checking harmonic keys",
+        "Balancing energy flow",
+        "Writing transitions to Spotify",
+      ],
     },
     copy: {
       song: {
@@ -345,7 +420,7 @@ const TRANSLATIONS = {
       "Failed to generate playlists": "Failed to generate playlists",
       "Generation failed": "Generation failed",
       "Please describe the playlist vibe first.": "Please describe the playlist vibe first.",
-      "Spinning up your mix…": "Spinning up your mix…",
+  "Spinning up your mix…": "Preparando seu mix…",
       "Playlist updated with fresh tracks on Spotify!": "Playlist updated with fresh tracks on Spotify!",
       "Custom playlist created and added to Spotify!": "Custom playlist created and added to Spotify!",
       "Please log in with Spotify to continue.": "Please log in with Spotify to continue.",
@@ -371,6 +446,12 @@ const TRANSLATIONS = {
     nav: {
       aria: "Alternar modo de criação",
       playlists: {
+        mix: [
+          "Ajustando faixas de BPM",
+          "Conferindo tonalidades harmônicas",
+          "Equilibrando a curva de energia",
+          "Gravando a ordem no Spotify",
+        ],
         title: "Gerador de playlists",
         hint: "Crie ou aprimore sets com Gemini + Spotify",
       },
@@ -422,6 +503,55 @@ const TRANSLATIONS = {
       description:
         "Monte coleções inteligentes com todas as faixas que você curtiu. Buscamos suas músicas salvas, detectamos estilos dominantes e criamos playlists prontas por gênero.",
       cta: "Agrupar músicas curtidas por gênero",
+    },
+    mix: {
+      title: "Misture uma playlist existente",
+      description:
+        "Reorganize as faixas para sobreposições suaves equilibrando tempo, tonalidade e energia.",
+      selectLabel: "Escolha uma playlist para misturar",
+      selectPlaceholder: "Selecione uma playlist para misturar",
+      cta: "Misturar playlist com transições suaves",
+      ctaProgress: "Misturando…",
+      status: {
+        idle: "Escolha uma playlist para misturar.",
+        select: "Selecione uma playlist primeiro.",
+        mixing: "Analisando tempos, tons e transições…",
+        ready: "Pronto para misturar “{name}”.",
+        success: "“{name}” misturada com transições perfeitas!",
+        unchanged: "“{name}” já estava organizada para transições suaves.",
+        login: "Entre com o Spotify para misturar playlists.",
+      },
+      highlightsTitle: "Destaques das transições",
+      summaryTitle: "Panorama da mixagem",
+      empty: "Misture uma playlist para ver os destaques harmônicos.",
+      summary: {
+        tempoRange: "Faixa de BPM: {min}–{max} (Δ {delta})",
+        energyArc: "Curva de energia: {start} → {peak} → {end}",
+        keySpread: "Famílias de tons cobertas: {families}",
+        keyFallback: "Famílias de tons cobertas: n/d",
+        updated: "Misturado às {time}",
+        limited: "Apenas as primeiras {count} faixas foram reorganizadas para manter a velocidade.",
+      },
+      transition: {
+        bpm: "Δ BPM {delta}",
+        key: "Tom {from} → {to} ({match})",
+        energy: "Energia {from} → {to} ({direction})",
+        phrasing: "Fraseado {label}",
+        matchLabels: {
+          perfect: "perfeito",
+          smooth: "suave",
+          contrast: "contraste",
+        },
+        energyLabels: {
+          build: "crescendo",
+          release: "descendo",
+          steady: "estável",
+        },
+        phrasingLabels: {
+          locked: "alinhado",
+          loose: "deslocado",
+        },
+      },
     },
     results: {
       title: "Suas playlists geradas",
@@ -515,6 +645,12 @@ const TRANSLATIONS = {
         "Coletando gêneros dos artistas",
         "Montando playlists por estilo",
         "Pronto para ouvir",
+      ],
+      mix: [
+        "Ajustando faixas de BPM",
+        "Verificando tonalidades harmônicas",
+        "Equilibrando o fluxo de energia",
+        "Gravando transições no Spotify",
       ],
     },
     copy: {
@@ -761,6 +897,14 @@ function refreshLocaleDependentCopy() {
     htmlElement.setAttribute("lang", currentLocale);
   }
   updateLanguageButtons();
+  if (mixState.pending) {
+    renderMixPendingState();
+  } else if (mixState.lastPayload) {
+    renderMixHighlights(mixState.lastPayload);
+  } else {
+    resetMixResultsToEmpty();
+  }
+  refreshMixStatusLocale();
 }
 
 function setLocale(locale, { persist = true } = {}) {
@@ -1574,6 +1718,50 @@ function showStatus(element, message, type) {
   }
 }
 
+function setMixStatusKey(key, replacements = {}, type = "", fallback) {
+  if (!mixStatus) return;
+  const message = t(key, replacements, { fallback: fallback ?? key });
+  showStatus(mixStatus, message, type);
+  mixState.statusKey = key;
+  mixState.statusReplacements = replacements;
+  mixState.statusFallback = fallback ?? key ?? message;
+  mixState.statusType = type || "";
+}
+
+function setMixStatusMessage(message, type = "") {
+  if (!mixStatus) return;
+  const content = typeof message === "string" ? message : message ? String(message) : "";
+  showStatus(mixStatus, content, type);
+  mixState.statusKey = null;
+  mixState.statusReplacements = {};
+  mixState.statusFallback = content;
+  mixState.statusType = type || "";
+}
+
+function refreshMixStatusLocale() {
+  if (!mixStatus) return;
+  if (mixState.statusKey) {
+    const message = t(mixState.statusKey, mixState.statusReplacements, {
+      fallback: mixState.statusFallback || mixState.statusKey,
+    });
+    showStatus(mixStatus, message, mixState.statusType);
+  } else if (mixState.statusFallback) {
+    showStatus(mixStatus, mixState.statusFallback, mixState.statusType);
+  } else {
+    showStatus(mixStatus, "", "");
+  }
+}
+
+function renderMixPendingState() {
+  if (!mixResults) return;
+  mixState.pending = true;
+  mixState.lastPayload = null;
+  mixResults.innerHTML = "";
+  mixResults.removeAttribute("data-empty");
+  const loader = createLoader("mix.status.mixing");
+  mixResults.append(loader);
+}
+
 function setPlaylistSelectStatus(message, type) {
   if (!playlistSelectStatus) return;
   playlistSelectStatus.textContent = message || "";
@@ -2367,6 +2555,17 @@ async function loadUserPlaylists(options = {}) {
   playlistSelect.append(loadingOption);
   setPlaylistSelectStatus(t("Loading your playlists…"), "");
 
+  if (mixPlaylistSelect) {
+    mixPlaylistSelect.disabled = true;
+    mixPlaylistSelect.innerHTML = "";
+    const mixLoadingOption = document.createElement("option");
+    mixLoadingOption.value = "";
+    mixLoadingOption.textContent = t("Loading…", {}, { fallback: "Loading…" });
+    mixPlaylistSelect.append(mixLoadingOption);
+  }
+
+  setMixStatusMessage("");
+
   if (chatPlaylistSelect) {
     chatPlaylistSelect.disabled = true;
     chatPlaylistSelect.innerHTML = "";
@@ -2407,6 +2606,19 @@ async function loadUserPlaylists(options = {}) {
       playlistSelect.disabled = true;
       loginButton?.focus();
       playlistsLoaded = false;
+      if (mixPlaylistSelect) {
+        mixPlaylistSelect.innerHTML = "";
+        const mixSigninOption = document.createElement("option");
+        mixSigninOption.value = "";
+        mixSigninOption.textContent = t("Sign in to load your playlists");
+        mixPlaylistSelect.append(mixSigninOption);
+        mixPlaylistSelect.disabled = true;
+      }
+      const mixMessage =
+        response.status === 403
+          ? message
+          : t("mix.status.login", {}, { fallback: "Log in with Spotify to mix playlists." });
+  setMixStatusMessage(mixMessage, "error");
       if (chatPlaylistSelect) {
         chatPlaylistSelect.innerHTML = "";
         const chatSigninOption = document.createElement("option");
@@ -2438,6 +2650,20 @@ async function loadUserPlaylists(options = {}) {
       playlistSelect.append(option);
       setPlaylistSelectStatus(t("We couldn't find playlists in your account yet."), "");
       playlistSelect.disabled = true;
+      if (mixPlaylistSelect) {
+        mixPlaylistSelect.innerHTML = "";
+        const mixEmptyOption = document.createElement("option");
+        mixEmptyOption.value = "";
+        mixEmptyOption.textContent = t("No playlists found");
+        mixPlaylistSelect.append(mixEmptyOption);
+        mixPlaylistSelect.disabled = true;
+      }
+      setMixStatusKey(
+        "We couldn't find playlists in your account yet.",
+        {},
+        "",
+        "We couldn't find playlists in your account yet."
+      );
       if (chatPlaylistSelect) {
         chatPlaylistSelect.innerHTML = "";
         const chatEmptyOption = document.createElement("option");
@@ -2459,6 +2685,17 @@ async function loadUserPlaylists(options = {}) {
     placeholder.selected = true;
     playlistSelect.append(placeholder);
 
+    if (mixPlaylistSelect) {
+      mixPlaylistSelect.innerHTML = "";
+      const mixPlaceholder = document.createElement("option");
+      mixPlaceholder.value = "";
+      mixPlaceholder.textContent = t("mix.selectPlaceholder", {}, {
+        fallback: "Select a playlist to mix",
+      });
+      mixPlaceholder.selected = true;
+      mixPlaylistSelect.append(mixPlaceholder);
+    }
+
     playlists.slice(0, 200).forEach((playlist) => {
       if (!playlist?.id || !playlist?.name) return;
       const option = document.createElement("option");
@@ -2469,10 +2706,22 @@ async function loadUserPlaylists(options = {}) {
         : playlist.name;
       option.dataset.name = playlist.name;
       playlistSelect.append(option);
+
+      if (mixPlaylistSelect) {
+        const mixOption = document.createElement("option");
+        mixOption.value = playlist.id;
+        mixOption.textContent = option.textContent;
+        mixOption.dataset.name = playlist.name;
+        mixPlaylistSelect.append(mixOption);
+      }
     });
 
     playlistSelect.disabled = false;
     syncPlaylistSelectionFromCurrentValue();
+    if (mixPlaylistSelect) {
+      mixPlaylistSelect.disabled = false;
+      handleMixSelectChange();
+    }
     populateChatPlaylistSelect(playlists);
     if (triggeredByFormButton) {
       if (!targetPlaylistInput || !targetPlaylistInput.value.trim()) {
@@ -2500,6 +2749,15 @@ async function loadUserPlaylists(options = {}) {
     playlistSelect.append(retryOption);
     setPlaylistSelectStatus(message, "error");
     playlistSelect.disabled = true;
+    if (mixPlaylistSelect) {
+      mixPlaylistSelect.innerHTML = "";
+      const mixRetryOption = document.createElement("option");
+      mixRetryOption.value = "";
+      mixRetryOption.textContent = t("Load again");
+      mixPlaylistSelect.append(mixRetryOption);
+      mixPlaylistSelect.disabled = true;
+    }
+  setMixStatusMessage(message, "error");
     if (chatPlaylistSelect) {
       chatPlaylistSelect.innerHTML = "";
       const chatRetryOption = document.createElement("option");
@@ -2688,6 +2946,405 @@ function renderGenrePlaylists(playlists) {
     card.append(header, description, details);
     genreResults.append(card);
   });
+}
+
+function formatSigned(value, digits = 0) {
+  if (!Number.isFinite(value)) {
+    return "0";
+  }
+  const rounded = Number(value.toFixed(digits));
+  const epsilon = 1 / Math.pow(10, digits + 2);
+  if (Math.abs(rounded) < epsilon) {
+    if (digits > 0) {
+      return `+0.${"0".repeat(digits)}`;
+    }
+    return "+0";
+  }
+  const formatted = rounded.toFixed(digits);
+  return rounded > 0 ? `+${formatted}` : formatted;
+}
+
+function formatEnergyPercent(value) {
+  if (!Number.isFinite(value)) {
+    return "--";
+  }
+  const clamped = Math.min(Math.max(value, 0), 1);
+  return `${Math.round(clamped * 100)}%`;
+}
+
+function getKeyMatchLabel(distance) {
+  if (!Number.isFinite(distance)) {
+    return "contrast";
+  }
+  if (distance <= 0.25) {
+    return "perfect";
+  }
+  if (distance <= 1.2) {
+    return "smooth";
+  }
+  return "contrast";
+}
+
+function getEnergyDirection(delta) {
+  if (!Number.isFinite(delta) || Math.abs(delta) <= 0.04) {
+    return "steady";
+  }
+  return delta > 0 ? "build" : "release";
+}
+
+function renderMixHighlights(payload) {
+  if (!mixResults) return;
+
+  mixState.pending = false;
+  mixState.lastPayload = payload && typeof payload === "object" ? payload : null;
+
+  const summary = payload?.summary && typeof payload.summary === "object" ? payload.summary : null;
+  const transitions = Array.isArray(payload?.transitions) ? payload.transitions : [];
+
+  mixResults.innerHTML = "";
+
+  const hasSummary = Boolean(summary);
+  const hasTransitions = transitions.length > 0;
+
+  if (!hasSummary && !hasTransitions) {
+    mixState.lastPayload = null;
+    const empty = document.createElement("div");
+    empty.className = "mix-results__empty";
+    const paragraph = document.createElement("p");
+    paragraph.textContent = t("mix.empty");
+    empty.append(paragraph);
+    mixResults.append(empty);
+    mixResults.setAttribute("data-empty", "");
+    return;
+  }
+
+  mixResults.removeAttribute("data-empty");
+
+  if (hasSummary) {
+    const summaryCard = document.createElement("div");
+    summaryCard.className = "mix-summary";
+
+    const summaryTitle = document.createElement("h3");
+    summaryTitle.className = "mix-summary__title";
+    summaryTitle.textContent = t("mix.summaryTitle");
+    summaryCard.append(summaryTitle);
+
+    const list = document.createElement("ul");
+    list.className = "mix-summary__list";
+
+    const tempo = summary.tempo || {};
+    if (Number.isFinite(tempo.min) && Number.isFinite(tempo.max)) {
+      const min = Math.round(tempo.min);
+      const max = Math.round(tempo.max);
+      const delta = Math.abs(max - min);
+      const item = document.createElement("li");
+      item.textContent = t(
+        "mix.summary.tempoRange",
+        { min, max, delta },
+        { fallback: `Tempo range: ${min}–${max} BPM (Δ ${delta})` }
+      );
+      list.append(item);
+    }
+
+    const energy = summary.energy || {};
+    if (
+      Number.isFinite(energy.start) &&
+      Number.isFinite(energy.peak) &&
+      Number.isFinite(energy.end)
+    ) {
+      const item = document.createElement("li");
+      item.textContent = t(
+        "mix.summary.energyArc",
+        {
+          start: formatEnergyPercent(energy.start),
+          peak: formatEnergyPercent(energy.peak),
+          end: formatEnergyPercent(energy.end),
+        },
+        {
+          fallback: `Energy arc: ${formatEnergyPercent(energy.start)} → ${formatEnergyPercent(
+            energy.peak
+          )} → ${formatEnergyPercent(energy.end)}`,
+        }
+      );
+      list.append(item);
+    }
+
+    const keyFamilies = Array.isArray(summary.key?.families)
+      ? summary.key.families
+      : [];
+    const familiesLine = keyFamilies.length
+      ? t(
+          "mix.summary.keySpread",
+          { families: keyFamilies.join(", ") },
+          { fallback: `Key families covered: ${keyFamilies.join(", ")}` }
+        )
+      : t("mix.summary.keyFallback");
+    const keysItem = document.createElement("li");
+    keysItem.textContent = familiesLine;
+    list.append(keysItem);
+
+    if (summary.updatedAt) {
+      const updated = new Date(summary.updatedAt);
+      if (!Number.isNaN(updated.getTime())) {
+        const formatter = new Intl.DateTimeFormat(currentLocale, {
+          hour: "2-digit",
+          minute: "2-digit",
+        });
+        const item = document.createElement("li");
+        item.textContent = t(
+          "mix.summary.updated",
+          { time: formatter.format(updated) },
+          { fallback: `Mixed at ${formatter.format(updated)}` }
+        );
+        list.append(item);
+      }
+    }
+
+    if (payload?.limited && typeof payload.mixedCount === "number") {
+      const limitedItem = document.createElement("li");
+      limitedItem.textContent = t(
+        "mix.summary.limited",
+        { count: payload.mixedCount },
+        {
+          fallback: `Only the first ${payload.mixedCount} tracks were re-ordered to keep things fast.`,
+        }
+      );
+      list.append(limitedItem);
+    }
+
+    summaryCard.append(list);
+    mixResults.append(summaryCard);
+  }
+
+  if (hasTransitions) {
+    const list = document.createElement("ul");
+    list.className = "mix-transition-list";
+
+    transitions.slice(0, 12).forEach((transition) => {
+      if (!transition) return;
+      const item = document.createElement("li");
+      item.className = "mix-transition";
+
+      const trackLine = document.createElement("div");
+      trackLine.className = "mix-transition__tracks";
+
+      const fromLabel = transition?.from?.title
+        ? `${transition.from.title}${
+            transition.from.artist ? ` — ${transition.from.artist}` : ""
+          }`
+        : transition?.from?.artist || t("Unknown artist");
+      const toLabel = transition?.to?.title
+        ? `${transition.to.title}${transition.to.artist ? ` — ${transition.to.artist}` : ""}`
+        : transition?.to?.artist || t("Unknown artist");
+
+      const fromSpan = document.createElement("span");
+      fromSpan.textContent = fromLabel;
+      const arrowSpan = document.createElement("span");
+      arrowSpan.textContent = "→";
+      const toSpan = document.createElement("span");
+      toSpan.textContent = toLabel;
+
+      trackLine.append(fromSpan, arrowSpan, toSpan);
+      item.append(trackLine);
+
+      const metrics = document.createElement("div");
+      metrics.className = "mix-transition__metrics";
+
+      const tempoMetric = document.createElement("span");
+      tempoMetric.className = "mix-transition__metric";
+      tempoMetric.textContent = t(
+        "mix.transition.bpm",
+        {
+          delta: formatSigned(Number(transition?.tempoDelta ?? 0), 1),
+        },
+        {
+          fallback: `Δ BPM ${formatSigned(Number(transition?.tempoDelta ?? 0), 1)}`,
+        }
+      );
+      metrics.append(tempoMetric);
+
+      const camelotFrom = transition?.from?.camelot || "N/A";
+      const camelotTo = transition?.to?.camelot || "N/A";
+      const matchLabelKey = getKeyMatchLabel(Number(transition?.camelotDistance));
+      const keyMetric = document.createElement("span");
+      keyMetric.className = "mix-transition__metric";
+      keyMetric.textContent = t(
+        "mix.transition.key",
+        {
+          from: camelotFrom,
+          to: camelotTo,
+          match: t(`mix.transition.matchLabels.${matchLabelKey}`),
+        },
+        {
+          fallback: `Key ${camelotFrom} → ${camelotTo}`,
+        }
+      );
+      metrics.append(keyMetric);
+
+      const energyMetric = document.createElement("span");
+      energyMetric.className = "mix-transition__metric";
+      const energyDirection = getEnergyDirection(Number(transition?.energyDelta));
+      energyMetric.textContent = t(
+        "mix.transition.energy",
+        {
+          from: formatEnergyPercent(transition?.from?.energy),
+          to: formatEnergyPercent(transition?.to?.energy),
+          direction: t(`mix.transition.energyLabels.${energyDirection}`),
+        },
+        {
+          fallback: `Energy ${formatEnergyPercent(transition?.from?.energy)} → ${formatEnergyPercent(
+            transition?.to?.energy
+          )}`,
+        }
+      );
+      metrics.append(energyMetric);
+
+      if (typeof transition?.timeSignatureMatch === "boolean") {
+        const phrasingMetric = document.createElement("span");
+        phrasingMetric.className = "mix-transition__metric";
+        const phrasingKey = transition.timeSignatureMatch ? "locked" : "loose";
+        phrasingMetric.textContent = t(
+          "mix.transition.phrasing",
+          { label: t(`mix.transition.phrasingLabels.${phrasingKey}`) },
+          {
+            fallback: `Phrasing ${transition.timeSignatureMatch ? "aligned" : "offset"}`,
+          }
+        );
+        metrics.append(phrasingMetric);
+      }
+
+      item.append(metrics);
+      list.append(item);
+    });
+
+    mixResults.append(list);
+  }
+}
+
+function resetMixResultsToEmpty() {
+  if (!mixResults) return;
+  mixState.pending = false;
+  mixState.lastPayload = null;
+  mixResults.innerHTML = "";
+  mixResults.setAttribute("data-empty", "");
+  const empty = document.createElement("div");
+  empty.className = "mix-results__empty";
+  const paragraph = document.createElement("p");
+  paragraph.textContent = t("mix.empty");
+  empty.append(paragraph);
+  mixResults.append(empty);
+}
+
+function handleMixSelectChange() {
+  if (!mixPlaylistSelect) return;
+  const value = (mixPlaylistSelect.value || "").trim();
+  if (!value) {
+    setMixStatusKey("mix.status.select");
+    return;
+  }
+  const option = mixPlaylistSelect.options[mixPlaylistSelect.selectedIndex];
+  const name = option?.dataset?.name || option?.textContent?.trim() || "";
+  if (name) {
+    setMixStatusKey("mix.status.ready", { name }, "", name ? `Ready to mix “${name}”` : undefined);
+  } else {
+    setMixStatusKey("mix.status.idle");
+  }
+}
+
+async function handleMixPlaylist() {
+  if (!mixPlaylistSelect || !mixPlaylistButton) return;
+  if (mixProcessing) return;
+
+  const playlistId = (mixPlaylistSelect.value || "").trim();
+  if (!playlistId) {
+    setMixStatusKey("mix.status.select", {}, "error");
+    return;
+  }
+
+  mixProcessing = true;
+  mixPlaylistButton.disabled = true;
+  mixPlaylistButton.textContent = t("mix.ctaProgress");
+  setMixStatusKey("mix.status.mixing");
+  renderMixPendingState();
+
+  resetLiveStatus();
+  startLiveStatus("mix");
+  switchTickerMode("mix", {
+    requestId: null,
+    operation: "mix",
+    label: t("mix.status.mixing"),
+    allowPlaceholder: true,
+  });
+
+  try {
+    const response = await fetch("/mix-playlist", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playlistId }),
+    });
+
+    if (response.status === 401 || response.status === 403) {
+      const message =
+        response.status === 403
+          ? t(
+              "We need new permissions to list your playlists. Click ‘Log in with Spotify’."
+            )
+          : t("mix.status.login");
+      setMixStatusMessage(message, "error");
+      failLiveStatus(message);
+      resetMixResultsToEmpty();
+      return;
+    }
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => ({}));
+      const rawMessage =
+        typeof payload?.error === "string" && payload.error.trim()
+          ? payload.error.trim()
+          : "Failed to mix playlist";
+      const message = t(rawMessage, {}, { fallback: rawMessage });
+      setMixStatusMessage(message, "error");
+      failLiveStatus(message);
+      resetMixResultsToEmpty();
+      return;
+    }
+
+    const data = await response.json();
+    renderMixHighlights(data);
+
+    const playlistName = data?.playlist?.name || "";
+    const changed = data?.changed !== false;
+    const statusKey = changed ? "mix.status.success" : "mix.status.unchanged";
+    const fallbackMessage = changed
+      ? `Playlist mixed with seamless transitions!`
+      : `Playlist was already optimized for smooth transitions.`;
+    setMixStatusKey(statusKey, { name: playlistName }, "success", fallbackMessage);
+
+    const tickerSongs = Array.isArray(data?.transitions)
+      ? data.transitions
+          .slice(0, 24)
+          .map((transition) => {
+            if (!transition?.from?.title || !transition?.from?.artist || !transition?.to?.title) {
+              return undefined;
+            }
+            return `${transition.from.title} — ${transition.from.artist} → ${transition.to.title}`;
+          })
+          .filter(Boolean)
+      : [];
+
+    completeLiveStatus(tickerSongs, { label: statusKey });
+  } catch (error) {
+    console.error("Mix playlist error", error);
+    const rawMessage = error?.message || "Failed to mix playlist";
+    const message = t(rawMessage, {}, { fallback: rawMessage });
+    setMixStatusMessage(message, "error");
+    resetMixResultsToEmpty();
+    failLiveStatus(message);
+  } finally {
+    mixProcessing = false;
+    mixPlaylistButton.disabled = false;
+    mixPlaylistButton.textContent = t("mix.cta");
+  }
 }
 
 async function handlePreviewGeneration() {
@@ -2950,6 +3607,8 @@ refreshModelsButton?.addEventListener("click", () => loadGeminiModels());
 refreshPlaylistsButton?.addEventListener("click", () => loadUserPlaylists({ trigger: "manual" }));
 playlistSelect?.addEventListener("change", handlePlaylistSelectChange);
 targetPlaylistInput?.addEventListener("input", handlePlaylistManualInput);
+mixPlaylistButton?.addEventListener("click", handleMixPlaylist);
+mixPlaylistSelect?.addEventListener("change", handleMixSelectChange);
 modelSelect?.addEventListener("change", () => {
   const selected = getSelectedModel();
   if (!selected) {

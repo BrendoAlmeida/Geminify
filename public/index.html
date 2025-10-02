@@ -183,6 +183,44 @@
             </div>
             <div id="results" class="playlist-grid" aria-live="polite"></div>
           </section>
+
+          <section class="panel panel--glass" aria-labelledby="mixTitle" id="mixSection">
+            <div class="panel__header">
+              <h2 class="panel__title" id="mixTitle" data-i18n="mix.title">Mix an existing playlist</h2>
+              <p class="panel__description" data-i18n="mix.description">
+                Reorder tracks for seamless overlaps by balancing tempo, harmonic key, and energy flow.
+              </p>
+            </div>
+            <div class="mix-controls">
+              <label class="mix-controls__label" for="mixPlaylistSelect" data-i18n="mix.selectLabel">
+                Pick a playlist to mix
+              </label>
+              <div class="mix-controls__row">
+                <select
+                  id="mixPlaylistSelect"
+                  class="mix-controls__select"
+                  aria-describedby="mixStatus"
+                  disabled
+                >
+                  <option value="" data-i18n="mix.selectPlaceholder">Select a playlist to mix</option>
+                </select>
+                <button
+                  type="button"
+                  class="btn btn--primary mix-controls__button"
+                  id="mixPlaylistButton"
+                  data-i18n="mix.cta"
+                >
+                  Mix playlist for smooth transitions
+                </button>
+              </div>
+              <p id="mixStatus" class="status" role="status" aria-live="polite"></p>
+            </div>
+            <div id="mixResults" class="mix-results" data-empty>
+              <div class="mix-results__empty">
+                <p data-i18n="mix.empty">Mix a playlist to see harmonic transition highlights.</p>
+              </div>
+            </div>
+          </section>
         </main>
       </div>
 
