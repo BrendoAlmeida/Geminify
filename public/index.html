@@ -56,7 +56,7 @@
       >
         <button class="view-nav__button is-active" type="button" data-view-target="playlists">
           <span class="view-nav__label" data-i18n="nav.playlists.title">Playlist generator</span>
-          <span class="view-nav__hint" data-i18n="nav.playlists.hint">Create or enhance mixes with Gemini + Spotify</span>
+          <span class="view-nav__hint" data-i18n="nav.playlists.hint">Create or enhance playlists with Gemini + Spotify</span>
         </button>
         <button class="view-nav__button" type="button" data-view-target="chat">
           <span class="view-nav__label" data-i18n="nav.chat.title">Idea lounge</span>
@@ -69,7 +69,7 @@
           <div class="hero__content">
             <h1 class="hero__title" id="playlistsViewTitle" data-i18n="hero.playlists.title">Craft soundscapes with AI + Spotify</h1>
             <p class="hero__subtitle" data-i18n="hero.playlists.subtitle">
-              Spin up immersive playlists with a tap or describe the vibe and let Gemini curate a bespoke mix in seconds.
+              Spin up immersive playlists with a tap or describe the vibe and let Gemini curate a bespoke playlist in seconds.
             </p>
             <div class="hero__actions">
               <a class="btn btn--primary" href="/login" id="loginButton" data-i18n="hero.playlists.login">Log in with Spotify</a>
@@ -81,9 +81,9 @@
         <main class="content">
           <section class="panel panel--glass" aria-labelledby="customPromptTitle">
             <div class="panel__header">
-              <h2 class="panel__title" id="customPromptTitle" data-i18n="custom.title">Dream up a custom mix</h2>
+              <h2 class="panel__title" id="customPromptTitle" data-i18n="custom.title">Dream up a custom playlist</h2>
               <p class="panel__description" data-i18n="custom.description">
-                Describe a mood, scene, story, or genre-bending idea. Gemini will weave 20+ tracks into a cohesive set, then we push it straight to your Spotify.
+                Describe a mood, scene, story, or genre-bending idea. Gemini will weave 20+ tracks into a cohesive playlist, then we push it straight to your Spotify.
               </p>
             </div>
             <div class="model-bar" aria-live="polite">
@@ -142,7 +142,7 @@
                   autocomplete="off"
                 />
                 <p class="playlist-upgrade__hint" data-i18n="forms.upgrade.help">
-                  We&apos;ll keep the playlist and add fresh tracks from your prompt. Leave blank to create a brand-new mix.
+                  We&apos;ll keep the playlist and add fresh tracks from your prompt. Leave blank to create a brand-new playlist.
                 </p>
               </div>
               <button type="submit" class="btn btn--primary" data-i18n="forms.custom.submit">Create Custom Playlist</button>
@@ -183,44 +183,6 @@
             </div>
             <div id="results" class="playlist-grid" aria-live="polite"></div>
           </section>
-
-          <section class="panel panel--glass" aria-labelledby="mixTitle" id="mixSection">
-            <div class="panel__header">
-              <h2 class="panel__title" id="mixTitle" data-i18n="mix.title">Mix an existing playlist</h2>
-              <p class="panel__description" data-i18n="mix.description">
-                Reorder tracks for seamless overlaps by balancing tempo, harmonic key, and energy flow.
-              </p>
-            </div>
-            <div class="mix-controls">
-              <label class="mix-controls__label" for="mixPlaylistSelect" data-i18n="mix.selectLabel">
-                Pick a playlist to mix
-              </label>
-              <div class="mix-controls__row">
-                <select
-                  id="mixPlaylistSelect"
-                  class="mix-controls__select"
-                  aria-describedby="mixStatus"
-                  disabled
-                >
-                  <option value="" data-i18n="mix.selectPlaceholder">Select a playlist to mix</option>
-                </select>
-                <button
-                  type="button"
-                  class="btn btn--primary mix-controls__button"
-                  id="mixPlaylistButton"
-                  data-i18n="mix.cta"
-                >
-                  Mix playlist for smooth transitions
-                </button>
-              </div>
-              <p id="mixStatus" class="status" role="status" aria-live="polite"></p>
-            </div>
-            <div id="mixResults" class="mix-results" data-empty>
-              <div class="mix-results__empty">
-                <p data-i18n="mix.empty">Mix a playlist to see harmonic transition highlights.</p>
-              </div>
-            </div>
-          </section>
         </main>
       </div>
 
@@ -229,7 +191,7 @@
           <div class="hero__content">
             <h1 class="hero__title" id="chatViewTitle" data-i18n="chat.hero.title">Brainstorm playlists in chat</h1>
             <p class="hero__subtitle" data-i18n="chat.hero.subtitle">
-              Trade ideas with Gemini in a chat-style flow and capture ready-to-use tags and song snippets for your next mix.
+              Trade ideas with Gemini in a chat-style flow and capture ready-to-use tags and song snippets for your next playlist.
             </p>
           </div>
         </header>

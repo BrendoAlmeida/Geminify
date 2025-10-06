@@ -1117,15 +1117,20 @@ app.post("/mix-playlist", async (req, res) => {
         if (!playlist) {
             return res.status(404).json({ error: "Playlist not found." });
         }
+        const playlistAny = playlist;
+        log(`Mix request for playlist ${playlist.id}: name="${playlist.name}" owner=${playlist.owner?.id} collaborative=${playlist.collaborative} public=${playlist.public} snapshot=${playlist.snapshot_id} capabilities=${JSON.stringify(playlistAny?.capabilities ?? null)} restrictions=${JSON.stringify(playlistAny?.restrictions ?? null)}`);
         const profileResponse = await requestQueue.add(() => spotifyApi.getMe());
         const currentUserId = profileResponse.body?.id ?? "";
         const isOwnedByUser = Boolean(currentUserId && playlist.owner?.id === currentUserId);
+        log(`Current user for mix: id=${currentUserId} display=${profileResponse.body?.display_name} isOwned=${isOwnedByUser}`);
         if (!isOwnedByUser) {
             return res.status(403).json({
                 error: "We can only mix playlists that you created. Pick one you own or copy it to your profile first.",
             });
         }
+        log(`Collecting tracks for playlist ${playlistId}`);
         const allTracks = await collectPlaylistTracks(playlistId, playlist);
+        log(`Collected ${allTracks.length} tracks for playlist ${playlistId}`);
         if (!allTracks.length) {
             return res
                 .status(400)
@@ -1140,6 +1145,7 @@ app.post("/mix-playlist", async (req, res) => {
         const mixableTracks = allTracks.slice(0, MAX_MIX_TRACKS);
         const trailingTracks = allTracks.slice(MAX_MIX_TRACKS);
         if (mixableTracks.length) {
+            log(`Hydrating audio features for ${mixableTracks.length} tracks (MAX_MIX_TRACKS=${MAX_MIX_TRACKS})`);
             await hydrateAudioFeatures(mixableTracks);
         }
         const orderedSection = mixableTracks.length > 1
@@ -1147,8 +1153,12 @@ app.post("/mix-playlist", async (req, res) => {
             : mixableTracks.slice();
         const finalOrder = orderedSection.concat(trailingTracks);
         const changed = finalOrder.some((track, index) => track.originalIndex !== allTracks[index].originalIndex);
+        log(`Final order computed for ${playlistId}: mixable=${mixableTracks.length} trailing=${trailingTracks.length} changed=${changed}`);
         if (changed) {
-            await applyPlaylistOrder(playlistId, allTracks, finalOrder);
+            log(`Applying playlist order for ${playlistId} with snapshot ${playlist.snapshot_id}`);
+            await applyPlaylistOrder(playlistId, allTracks, finalOrder, typeof playlist.snapshot_id === "string"
+                ? playlist.snapshot_id
+                : undefined);
         }
         const summary = orderedSection.length
             ? buildMixSummary(orderedSection)
@@ -1182,6 +1192,11 @@ app.post("/mix-playlist", async (req, res) => {
             });
         }
         if (statusCode === 403) {
+            const body = error?.body;
+            const reason = body?.error?.reason;
+            if (!reason) {
+                log(`Spotify returned 403 for playlist ${playlistId} without reason. Possible causes: missing playlist-modify scope, collaborative playlist restrictions, or attempting to reorder content you can't edit.`);
+            }
             return res.status(403).json({
                 error: "Spotify wouldn't let us reorder that playlist. Make sure you own it and granted the latest permissions, then try again.",
             });
@@ -1444,9 +1459,17 @@ async function hydrateAudioFeatures(tracks) {
     const uniqueIds = Array.from(new Set(tracks
         .map((track) => track.id)
         .filter((id) => Boolean(id))));
-    const featureMap = uniqueIds.length
-        ? await fetchAudioFeatures(uniqueIds)
-        : new Map();
+    log(`Hydrating audio features for ${tracks.length} tracks (unique Spotify IDs=${uniqueIds.length}).`);
+    let featureMap;
+    try {
+        featureMap = uniqueIds.length
+            ? await fetchAudioFeatures(uniqueIds)
+            : new Map();
+    }
+    catch (error) {
+        log(`Failed to retrieve audio features from Spotify; falling back to defaults. ${formatSpotifyError(error)}`);
+        featureMap = new Map();
+    }
     const tempoValues = [];
     const energyValues = [];
     const danceValues = [];
@@ -1518,13 +1541,24 @@ async function fetchAudioFeatures(trackIds) {
     const chunkSize = 100;
     for (let start = 0; start < trackIds.length; start += chunkSize) {
         const chunk = trackIds.slice(start, start + chunkSize);
-        const response = await requestQueue.add(() => spotifyApi.getAudioFeaturesForTracks(chunk));
-        const features = response.body?.audio_features ?? [];
-        features.forEach((feature) => {
-            if (feature?.id) {
-                result.set(feature.id, feature);
+        try {
+            log(`Requesting audio features chunk ${start}-${start + chunk.length - 1} (${chunk.length} track IDs).`);
+            const response = await requestQueue.add(() => spotifyApi.getAudioFeaturesForTracks(chunk));
+            const features = response.body?.audio_features ?? [];
+            features.forEach((feature) => {
+                if (feature?.id) {
+                    result.set(feature.id, feature);
+                }
+            });
+        }
+        catch (error) {
+            log(`Spotify getAudioFeaturesForTracks failed for chunk starting ${start}: ${formatSpotifyError(error)}`);
+            if (error?.statusCode === 403) {
+                log(`Encountered 403 while fetching audio features; proceeding without data for this chunk.`);
+                continue;
             }
-        });
+            throw error;
+        }
         if (start + chunkSize < trackIds.length) {
             await sleep(120);
         }
@@ -1668,29 +1702,48 @@ function buildMixedOrder(tracks) {
     return ordered;
 }
 function buildMixSummary(tracks) {
-    const tempoValues = tracks
+    const totalTracks = tracks.length;
+    const analyzedTracks = tracks.filter((track) => track.featuresAvailable);
+    const coverageRatio = totalTracks > 0 ? analyzedTracks.length / totalTracks : 0;
+    const sourceTracks = analyzedTracks.length ? analyzedTracks : tracks;
+    const tempoValues = sourceTracks
         .map((track) => track.tempo)
         .filter((value) => Number.isFinite(value));
-    const energyValues = tracks
+    const energyValues = sourceTracks
         .map((track) => track.energy)
         .filter((value) => Number.isFinite(value));
-    const tempoMin = tempoValues.length ? Math.min(...tempoValues) : 0;
-    const tempoMax = tempoValues.length ? Math.max(...tempoValues) : tempoMin;
-    const tempoAvg = tempoValues.length ? computeAverage(tempoValues) : tempoMin;
-    const energyStart = tracks[0]?.energy ?? 0.55;
-    const energyPeak = energyValues.length ? Math.max(...energyValues) : energyStart;
-    const energyEnd = tracks[tracks.length - 1]?.energy ?? energyPeak;
+    const tempo = tempoValues.length
+        ? {
+            min: Math.min(...tempoValues),
+            max: Math.max(...tempoValues),
+            average: computeAverage(tempoValues),
+        }
+        : null;
+    const startEnergyTrack = sourceTracks[0];
+    const endEnergyTrack = sourceTracks[sourceTracks.length - 1];
+    const energy = sourceTracks.length
+        ? {
+            start: startEnergyTrack?.energy ?? 0.55,
+            peak: Math.max(...energyValues),
+            end: endEnergyTrack?.energy ?? startEnergyTrack?.energy ?? 0.55,
+        }
+        : null;
     const families = new Set();
-    tracks.forEach((track) => {
+    sourceTracks.forEach((track) => {
         if (track.camelot?.label) {
             families.add(track.camelot.label);
         }
     });
     return {
-        tempo: { min: tempoMin, max: tempoMax, average: tempoAvg },
-        energy: { start: energyStart, peak: energyPeak, end: energyEnd },
+        tempo,
+        energy,
         key: { families: Array.from(families).slice(0, 12) },
         updatedAt: new Date().toISOString(),
+        coverage: {
+            totalTracks,
+            tracksWithFeatures: analyzedTracks.length,
+            coverageRatio,
+        },
     };
 }
 function buildTransitionInsights(tracks) {
@@ -1721,28 +1774,121 @@ function buildTransitionInsights(tracks) {
     }
     return transitions;
 }
-async function applyPlaylistOrder(playlistId, originalOrder, desiredOrder) {
-    if (!originalOrder.length || originalOrder.length !== desiredOrder.length) {
-        throw new Error("Invalid playlist order data.");
+async function replacePlaylistContentsInOrder(playlistId, uris) {
+    if (!uris.length) {
+        log(`Skipping bulk replace for ${playlistId}: no URIs provided.`);
+        return undefined;
     }
+    const total = uris.length;
+    const firstBatch = uris.slice(0, 100);
+    log(`Replacing playlist ${playlistId} contents (total ${total} tracks, first batch ${firstBatch.length}).`);
+    try {
+        await requestQueue.add(() => spotifyApi.replaceTracksInPlaylist(playlistId, firstBatch));
+    }
+    catch (error) {
+        log(`Spotify replaceTracksInPlaylist failed for ${playlistId}: ${formatSpotifyError(error)}`);
+        throw error;
+    }
+    if (total <= 100) {
+        log(`Bulk replace completed for ${playlistId} with ${total} tracks.`);
+        return undefined;
+    }
+    let snapshotId;
+    for (let start = 100; start < total; start += 100) {
+        const chunk = uris.slice(start, start + 100);
+        try {
+            const response = await requestQueue.add(() => spotifyApi.addTracksToPlaylist(playlistId, chunk));
+            snapshotId = response?.body?.snapshot_id ?? snapshotId;
+            log(`Appended chunk for ${playlistId}: items ${start}-${start + chunk.length - 1}. Snapshot: ${snapshotId ?? "unknown"}`);
+        }
+        catch (error) {
+            log(`Spotify addTracksToPlaylist failed for ${playlistId} at chunk starting ${start}: ${formatSpotifyError(error)}`);
+            throw error;
+        }
+        if (start + chunk.length < total) {
+            await sleep(120);
+        }
+    }
+    log(`Bulk replace completed for ${playlistId}. Final snapshot: ${snapshotId ?? "unknown"}`);
+    return snapshotId;
+}
+async function reorderPlaylistIncrementally(playlistId, originalOrder, desiredOrder, initialSnapshotId) {
     const working = originalOrder.slice();
+    let snapshotId = initialSnapshotId;
+    let moves = 0;
+    log(`Starting incremental reorder for ${playlistId}: ${desiredOrder.length} tracks, initial snapshot ${snapshotId ?? "unknown"}.`);
     for (let targetIndex = 0; targetIndex < desiredOrder.length; targetIndex += 1) {
         const targetTrack = desiredOrder[targetIndex];
         const currentIndex = working.findIndex((track) => track.originalIndex === targetTrack.originalIndex);
         if (currentIndex === -1) {
-            continue;
+            throw new Error(`Failed to locate track "${targetTrack.name}" while reordering playlist.`);
         }
         if (currentIndex === targetIndex) {
             continue;
         }
-        await requestQueue.add(() => spotifyApi.reorderTracksInPlaylist(playlistId, currentIndex, targetIndex, {
-            range_length: 1,
-        }));
+        log(`Reordering ${playlistId}: moving "${targetTrack.name}" from ${currentIndex} -> ${targetIndex} (snapshot ${snapshotId ?? "none"}).`);
+        let response;
+        try {
+            response = await requestQueue.add(() => spotifyApi.reorderTracksInPlaylist(playlistId, currentIndex, targetIndex, snapshotId
+                ? {
+                    range_length: 1,
+                    snapshot_id: snapshotId,
+                }
+                : {
+                    range_length: 1,
+                }));
+        }
+        catch (error) {
+            log(`spotifyApi.reorderTracksInPlaylist failed for ${playlistId} (move ${currentIndex} -> ${targetIndex}): ${formatSpotifyError(error)}`);
+            throw error;
+        }
+        snapshotId = response?.body?.snapshot_id ?? snapshotId;
+        moves += 1;
         const [moved] = working.splice(currentIndex, 1);
         working.splice(targetIndex, 0, moved);
         log(`Moved track "${targetTrack.name}" from position ${currentIndex + 1} to ${targetIndex + 1}`);
         await sleep(120);
     }
+    log(`Completed incremental reorder for ${playlistId}. Moves executed: ${moves}. Final snapshot ${snapshotId ?? "unknown"}.`);
+}
+async function applyPlaylistOrder(playlistId, originalOrder, desiredOrder, initialSnapshotId) {
+    log(`applyPlaylistOrder invoked for ${playlistId}: initial snapshot ${initialSnapshotId ?? "unknown"}`);
+    if (!originalOrder.length || originalOrder.length !== desiredOrder.length) {
+        throw new Error("Invalid playlist order data.");
+    }
+    const needsReorder = desiredOrder.some((track, index) => track.originalIndex !== originalOrder[index].originalIndex);
+    if (!needsReorder) {
+        return;
+    }
+    const missingUri = desiredOrder.find((track) => !track.uri);
+    if (missingUri) {
+        throw new Error(`Cannot reorder playlist because track "${missingUri.name}" is missing a Spotify URI.`);
+    }
+    const containsLocal = desiredOrder.some((track) => track.isLocal);
+    let snapshotSeed = initialSnapshotId;
+    if (!containsLocal) {
+        log(`No local tracks detected for ${playlistId}. Attempting bulk replace with ${desiredOrder.length} URIs.`);
+        const orderedUris = desiredOrder.map((track) => track.uri)
+            .filter((uri) => Boolean(uri));
+        try {
+            const snapshotFromBulk = await replacePlaylistContentsInOrder(playlistId, orderedUris);
+            snapshotSeed = snapshotFromBulk ?? snapshotSeed;
+            log(`Applied playlist order using bulk replace for ${orderedUris.length} tracks.`);
+            return;
+        }
+        catch (error) {
+            const formatted = error?.statusCode
+                ? formatSpotifyError(error)
+                : error instanceof Error
+                    ? error.message
+                    : String(error);
+            log(`Bulk playlist reorder failed for ${playlistId}, falling back to incremental mode:\n${formatted}`);
+        }
+    }
+    if (containsLocal) {
+        log(`Playlist ${playlistId} contains local tracks; skipping bulk replace and using incremental reorder.`);
+    }
+    await reorderPlaylistIncrementally(playlistId, originalOrder, desiredOrder, snapshotSeed);
 }
 async function refreshTokenIfNeeded() {
     let tokenData;

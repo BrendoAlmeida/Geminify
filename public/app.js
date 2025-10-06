@@ -123,14 +123,8 @@ const TRANSLATIONS = {
     nav: {
       aria: "Toggle creation mode",
       playlists: {
-        mix: [
-          "Dialing in BPM ranges",
-          "Checking harmonic keys",
-          "Balancing the energy curve",
-          "Saving the order to Spotify",
-        ],
         title: "Playlist generator",
-        hint: "Create or enhance mixes with Gemini + Spotify",
+        hint: "Create or enhance playlists with Gemini + Spotify",
       },
       chat: {
         title: "Idea lounge",
@@ -141,15 +135,15 @@ const TRANSLATIONS = {
       playlists: {
         title: "Craft soundscapes with AI + Spotify",
         subtitle:
-          "Spin up immersive playlists with a tap or describe the vibe and let Gemini curate a bespoke mix in seconds.",
+          "Spin up immersive playlists with a tap or describe the vibe and let Gemini curate a bespoke playlist in seconds.",
         login: "Log in with Spotify",
         preview: "Generate Random Playlists",
       },
     },
     custom: {
-      title: "Dream up a custom mix",
+      title: "Dream up a custom playlist",
       description:
-        "Describe a mood, scene, story, or genre-bending idea. Gemini will weave 20+ tracks into a cohesive set, then we push it straight to your Spotify.",
+        "Describe a mood, scene, story, or genre-bending idea. Gemini will weave 20+ tracks into a cohesive playlist, then we push it straight to your Spotify.",
     },
     models: {
       label: "Gemini model",
@@ -172,7 +166,7 @@ const TRANSLATIONS = {
         refresh: "Refresh",
         placeholder: "Paste a Spotify playlist link or ID",
         help:
-          "We’ll keep the playlist and add fresh tracks from your prompt. Leave blank to create a brand-new mix.",
+          "We’ll keep the playlist and add fresh tracks from your prompt. Leave blank to create a brand-new playlist.",
       },
     },
     genre: {
@@ -180,55 +174,6 @@ const TRANSLATIONS = {
       description:
         "Build smart collections from every track you've liked. We'll gather your saved songs, detect dominant styles, and shape ready-to-save playlists per genre.",
       cta: "Group liked songs by genre",
-    },
-    mix: {
-      title: "Mix an existing playlist",
-      description:
-        "Reorder tracks for seamless overlaps by balancing tempo, harmonic key, and energy flow.",
-      selectLabel: "Pick a playlist to mix",
-      selectPlaceholder: "Select a playlist to mix",
-      cta: "Mix playlist for smooth transitions",
-      ctaProgress: "Mixing…",
-      status: {
-        idle: "Pick a playlist to mix.",
-        select: "Select a playlist to mix first.",
-        mixing: "Analyzing tempos, keys, and transitions…",
-        ready: "Ready to mix “{name}”.",
-        success: "“{name}” mixed with seamless transitions!",
-        unchanged: "“{name}” was already optimized for smooth transitions.",
-        login: "Log in with Spotify to mix playlists.",
-      },
-      highlightsTitle: "Transition highlights",
-      summaryTitle: "Mix snapshot",
-      empty: "Mix a playlist to see harmonic transition highlights.",
-      summary: {
-        tempoRange: "Tempo range: {min}–{max} BPM (Δ {delta})",
-        energyArc: "Energy arc: {start} → {peak} → {end}",
-        keySpread: "Key families covered: {families}",
-        keyFallback: "Key families covered: n/a",
-        updated: "Mixed at {time}",
-        limited: "Only the first {count} tracks were re-ordered to keep things fast.",
-      },
-      transition: {
-        bpm: "Δ BPM {delta}",
-        key: "Key {from} → {to} ({match})",
-        energy: "Energy {from} → {to} ({direction})",
-        phrasing: "Phrasing {label}",
-        matchLabels: {
-          perfect: "perfect",
-          smooth: "smooth",
-          contrast: "contrast",
-        },
-        energyLabels: {
-          build: "build",
-          release: "release",
-          steady: "steady",
-        },
-        phrasingLabels: {
-          locked: "aligned",
-          loose: "offset",
-        },
-      },
     },
     results: {
       title: "Your generated playlists",
@@ -323,12 +268,6 @@ const TRANSLATIONS = {
         "Building playlists by style",
         "Ready to listen",
       ],
-      mix: [
-        "Locking BPM ranges",
-        "Checking harmonic keys",
-        "Balancing energy flow",
-        "Writing transitions to Spotify",
-      ],
     },
     copy: {
       song: {
@@ -419,8 +358,8 @@ const TRANSLATIONS = {
       "Spotify login required": "Spotify login required",
       "Failed to generate playlists": "Failed to generate playlists",
       "Generation failed": "Generation failed",
-      "Please describe the playlist vibe first.": "Please describe the playlist vibe first.",
-  "Spinning up your mix…": "Preparando seu mix…",
+  "Please describe the playlist vibe first.": "Please describe the playlist vibe first.",
+  "Spinning up your playlist…": "Spinning up your playlist…",
       "Playlist updated with fresh tracks on Spotify!": "Playlist updated with fresh tracks on Spotify!",
       "Custom playlist created and added to Spotify!": "Custom playlist created and added to Spotify!",
       "Please log in with Spotify to continue.": "Please log in with Spotify to continue.",
@@ -446,14 +385,8 @@ const TRANSLATIONS = {
     nav: {
       aria: "Alternar modo de criação",
       playlists: {
-        mix: [
-          "Ajustando faixas de BPM",
-          "Conferindo tonalidades harmônicas",
-          "Equilibrando a curva de energia",
-          "Gravando a ordem no Spotify",
-        ],
         title: "Gerador de playlists",
-        hint: "Crie ou aprimore sets com Gemini + Spotify",
+        hint: "Crie ou aprimore playlists com Gemini + Spotify",
       },
       chat: {
         title: "Sala de ideias",
@@ -464,15 +397,15 @@ const TRANSLATIONS = {
       playlists: {
         title: "Crie paisagens sonoras com IA + Spotify",
         subtitle:
-          "Gere playlists imersivas com um toque ou descreva o clima e deixe o Gemini montar um set sob medida em segundos.",
+          "Gere playlists imersivas com um toque ou descreva o clima e deixe o Gemini montar uma playlist sob medida em segundos.",
         login: "Entrar com Spotify",
         preview: "Gerar playlists aleatórias",
       },
     },
     custom: {
-      title: "Imagine um set personalizado",
+      title: "Imagine uma playlist personalizada",
       description:
-        "Descreva um clima, cena, história ou ideia híbrida. O Gemini tece mais de 20 faixas em um conjunto coeso e enviamos direto para o seu Spotify.",
+        "Descreva um clima, cena, história ou ideia híbrida. O Gemini tece mais de 20 faixas em uma playlist coesa e enviamos direto para o seu Spotify.",
     },
     models: {
       label: "Modelo Gemini",
@@ -495,7 +428,7 @@ const TRANSLATIONS = {
         refresh: "Atualizar",
         placeholder: "Cole um link ou ID de playlist do Spotify",
         help:
-          "Mantemos a playlist e adicionamos faixas novas a partir do seu prompt. Deixe em branco para criar um set inédito.",
+          "Mantemos a playlist e adicionamos faixas novas a partir do seu prompt. Deixe em branco para criar uma playlist inédita.",
       },
     },
     genre: {
@@ -503,55 +436,6 @@ const TRANSLATIONS = {
       description:
         "Monte coleções inteligentes com todas as faixas que você curtiu. Buscamos suas músicas salvas, detectamos estilos dominantes e criamos playlists prontas por gênero.",
       cta: "Agrupar músicas curtidas por gênero",
-    },
-    mix: {
-      title: "Misture uma playlist existente",
-      description:
-        "Reorganize as faixas para sobreposições suaves equilibrando tempo, tonalidade e energia.",
-      selectLabel: "Escolha uma playlist para misturar",
-      selectPlaceholder: "Selecione uma playlist para misturar",
-      cta: "Misturar playlist com transições suaves",
-      ctaProgress: "Misturando…",
-      status: {
-        idle: "Escolha uma playlist para misturar.",
-        select: "Selecione uma playlist primeiro.",
-        mixing: "Analisando tempos, tons e transições…",
-        ready: "Pronto para misturar “{name}”.",
-        success: "“{name}” misturada com transições perfeitas!",
-        unchanged: "“{name}” já estava organizada para transições suaves.",
-        login: "Entre com o Spotify para misturar playlists.",
-      },
-      highlightsTitle: "Destaques das transições",
-      summaryTitle: "Panorama da mixagem",
-      empty: "Misture uma playlist para ver os destaques harmônicos.",
-      summary: {
-        tempoRange: "Faixa de BPM: {min}–{max} (Δ {delta})",
-        energyArc: "Curva de energia: {start} → {peak} → {end}",
-        keySpread: "Famílias de tons cobertas: {families}",
-        keyFallback: "Famílias de tons cobertas: n/d",
-        updated: "Misturado às {time}",
-        limited: "Apenas as primeiras {count} faixas foram reorganizadas para manter a velocidade.",
-      },
-      transition: {
-        bpm: "Δ BPM {delta}",
-        key: "Tom {from} → {to} ({match})",
-        energy: "Energia {from} → {to} ({direction})",
-        phrasing: "Fraseado {label}",
-        matchLabels: {
-          perfect: "perfeito",
-          smooth: "suave",
-          contrast: "contraste",
-        },
-        energyLabels: {
-          build: "crescendo",
-          release: "descendo",
-          steady: "estável",
-        },
-        phrasingLabels: {
-          locked: "alinhado",
-          loose: "deslocado",
-        },
-      },
     },
     results: {
       title: "Suas playlists geradas",
@@ -581,7 +465,7 @@ const TRANSLATIONS = {
       hero: {
         title: "Crie playlists conversando",
         subtitle:
-          "Troque ideias com o Gemini em formato de chat e capture tags e sugestões rápidas para o seu próximo set.",
+          "Troque ideias com o Gemini em formato de chat e capture tags e sugestões rápidas para a sua próxima playlist.",
       },
       sender: {
         assistant: "Geminify",
@@ -645,12 +529,6 @@ const TRANSLATIONS = {
         "Coletando gêneros dos artistas",
         "Montando playlists por estilo",
         "Pronto para ouvir",
-      ],
-      mix: [
-        "Ajustando faixas de BPM",
-        "Verificando tonalidades harmônicas",
-        "Equilibrando o fluxo de energia",
-        "Gravando transições no Spotify",
       ],
     },
     copy: {
