@@ -94,6 +94,8 @@ const mixPlaylistButton = document.getElementById("mixPlaylistButton");
 const mixStatus = document.getElementById("mixStatus");
 const mixResults = document.getElementById("mixResults");
 
+document.body.classList.toggle("chat-expanded", chatView?.classList.contains("view--active"));
+
 let mixProcessing = false;
 const mixState = {
   lastPayload: null,
@@ -230,6 +232,25 @@ const TRANSLATIONS = {
         send: "Send",
         create: "Create playlist from chat",
         reset: "Reset chat & tags",
+      },
+      canvas: {
+        title: "Curation canvas",
+        subtitle: "Arrange tags and preview tracks while you chat.",
+        tracksTitle: "Featured suggestions",
+        tracksSubtitle: "Browse artwork, shuffle order, and listen without leaving the flow.",
+        tracksEmpty: "Tracks suggested in the chat will appear here with a Spotify player.",
+      },
+      settings: {
+        title: "Session controls",
+        subtitle: "Tune how suggestions are generated and choose playlists to update.",
+        likedTitle: "Send liked songs",
+        likedDescription: "Auto-share liked tracks to give the model more context.",
+        likedToggle: "Toggle sharing liked songs",
+        discoveryTitle: "Discovery mode",
+        discoveryDescription: "Favor fresh finds outside your library for broader inspiration.",
+        discoveryToggle: "Toggle discovery mode",
+        playlistTitle: "Select playlist to edit",
+        playlistDescription: "Pick an existing playlist to refine with the new ideas.",
       },
       tags: {
         themeTitle: "Vibes & narratives",
@@ -492,6 +513,25 @@ const TRANSLATIONS = {
         send: "Enviar",
         create: "Criar playlist a partir do chat",
         reset: "Limpar chat e tags",
+      },
+      canvas: {
+        title: "Canvas musical",
+        subtitle: "Organize tags e visualize faixas enquanto conversa com o modelo.",
+        tracksTitle: "Sugestões em destaque",
+        tracksSubtitle: "Veja capas, reorganize ordens e ouça sem sair da conversa.",
+        tracksEmpty: "As músicas sugeridas pelo chat aparecerão aqui com um player do Spotify.",
+      },
+      settings: {
+        title: "Configurações da sessão",
+        subtitle: "Ajuste como as sugestões são geradas e escolha playlists para atualizar.",
+        likedTitle: "Enviar músicas curtidas",
+        likedDescription: "Compartilhe automaticamente faixas curtidas para inspirar o modelo.",
+        likedToggle: "Ativar envio de músicas curtidas",
+        discoveryTitle: "Modo descobrimento",
+        discoveryDescription: "Priorize novidades fora do seu histórico para ampliar referências.",
+        discoveryToggle: "Ativar modo descobrimento",
+        playlistTitle: "Selecionar playlist para editar",
+        playlistDescription: "Escolha uma playlist existente para refinar com as novas sugestões.",
       },
       tags: {
         themeTitle: "Climas e narrativas",
@@ -1723,6 +1763,8 @@ function switchView(target) {
     button.classList.toggle("is-active", isActive);
     button.setAttribute("aria-pressed", String(isActive));
   });
+
+  document.body.classList.toggle("chat-expanded", target === "chat");
 }
 
 function appendChatMessage(role, content) {

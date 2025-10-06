@@ -196,63 +196,23 @@
           </div>
         </header>
 
-        <main class="content chat-content">
-          <section
-            class="panel panel--glass chat-playlist-panel"
-            aria-labelledby="chatPlaylistPanelTitle"
-          >
-            <div class="panel__header chat-playlist-panel__header">
-              <h2 class="panel__title" id="chatPlaylistPanelTitle" data-i18n="chat.playlistContext.title">Playlist context</h2>
-              <p class="panel__description" data-i18n="chat.playlistContext.description">
-                Pick an existing Spotify playlist to guide Gemini's suggestions. Leave empty to brainstorm from scratch.
-              </p>
-            </div>
-            <div class="chat-playlist-picker">
-              <label class="chat-playlist-picker__label" for="chatPlaylistSelect" data-i18n="chat.playlistContext.label"
-                >Enhance an existing playlist (optional)</label
-              >
-              <div class="chat-playlist-picker__controls">
-                <select
-                  id="chatPlaylistSelect"
-                  class="chat-playlist-picker__select"
-                  aria-describedby="chatPlaylistHint"
-                  disabled
-                >
-                  <option value="" data-i18n="chat.playlistContext.loading">Loading playlists…</option>
-                </select>
-                <button
-                  type="button"
-                  class="btn btn--ghost chat-playlist-picker__refresh"
-                  id="chatRefreshPlaylists"
-                  data-i18n="chat.playlistContext.refresh"
-                >
-                  Refresh
-                </button>
-              </div>
-              <p
-                id="chatPlaylistHint"
-                class="status"
-                role="status"
-                aria-live="polite"
-                hidden
-                aria-hidden="true"
-              ></p>
-            </div>
-          </section>
-          <section class="panel panel--glass chat-panel" aria-labelledby="chatPanelTitle">
-            <div class="panel__header chat-panel__header">
-              <h2 class="panel__title" id="chatPanelTitle" data-i18n="chat.panel.title">Chat with the model</h2>
-              <p class="panel__description" data-i18n="chat.panel.description">
+        <main class="chat-layout">
+          <section class="chat-pane chat-pane--left panel panel--glass" aria-labelledby="chatPanelTitle">
+            <div class="chat-pane__header">
+              <h2 class="chat-pane__title" id="chatPanelTitle" data-i18n="chat.panel.title">Chat with the model</h2>
+              <p class="chat-pane__description" data-i18n="chat.panel.description">
                 Share the mood, references, or stories you want to translate into music. Gemini replies with insights and optional tags to power up your playlist.
               </p>
             </div>
-            <div class="chat-log" id="chatLog" role="log" aria-live="polite">
-              <div class="chat-message chat-message--assistant">
-                <div class="chat-message__avatar" aria-hidden="true">✨</div>
-                <div class="chat-message__bubble">
-                  <span class="chat-message__sender">Geminify</span>
-                  <p class="chat-message__body" data-i18n="chat.initialMessage">Hey! Tell me the vibe, context, or inspiration you're exploring and I'll bring ideas, potential tags, and song examples.
-                  </p>
+            <div class="chat-pane__body">
+              <div class="chat-log" id="chatLog" role="log" aria-live="polite">
+                <div class="chat-message chat-message--assistant">
+                  <div class="chat-message__avatar" aria-hidden="true">✨</div>
+                  <div class="chat-message__bubble">
+                    <span class="chat-message__sender">Geminify</span>
+                    <p class="chat-message__body" data-i18n="chat.initialMessage">Hey! Tell me the vibe, context, or inspiration you're exploring and I'll bring ideas, potential tags, and song examples.
+                    </p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -286,27 +246,134 @@
             </form>
           </section>
 
-          <div class="tag-lane">
-            <section class="panel panel--glass tag-panel" aria-labelledby="themeTagsTitle">
-              <div class="tag-panel__header">
-                <h3 class="tag-panel__title" id="themeTagsTitle" data-i18n="chat.tags.themeTitle">Vibes &amp; narratives</h3>
-                <p class="tag-panel__description" data-i18n="chat.tags.themeDescription">Collect quick keywords for vibe, genre, or references.</p>
+          <section class="chat-canvas panel panel--glass" aria-labelledby="chatCanvasTitle">
+            <div class="chat-canvas__header">
+              <h2 class="chat-canvas__title" id="chatCanvasTitle" data-i18n="chat.canvas.title">Canvas musical</h2>
+              <p class="chat-canvas__description" data-i18n="chat.canvas.subtitle">
+                Organize tags e experimente combinações de músicas enquanto conversa com o modelo.
+              </p>
+            </div>
+            <div class="chat-canvas__tags">
+              <section class="tag-panel" aria-labelledby="themeTagsTitle">
+                <div class="tag-panel__header">
+                  <h3 class="tag-panel__title" id="themeTagsTitle" data-i18n="chat.tags.themeTitle">Vibes &amp; narratives</h3>
+                  <p class="tag-panel__description" data-i18n="chat.tags.themeDescription">Collect quick keywords for vibe, genre, or references.</p>
+                </div>
+                <div class="tag-list" id="themeTagList" data-empty>
+                  <p class="tag-empty" data-i18n="chat.tags.emptyTheme">No tags yet. Start chatting with the model!</p>
+                </div>
+              </section>
+            </div>
+            <div class="chat-canvas__tracks" aria-labelledby="chatTracksTitle">
+              <div class="chat-canvas__tracks-header">
+                <h3 class="chat-canvas__tracks-title" id="chatTracksTitle" data-i18n="chat.canvas.tracksTitle">Sugestões em destaque</h3>
+                <p class="chat-canvas__tracks-description" data-i18n="chat.canvas.tracksSubtitle">
+                  Veja capas, arraste para reorganizar e dê play sem sair da conversa.
+                </p>
               </div>
-              <div class="tag-list" id="themeTagList" data-empty>
-                <p class="tag-empty" data-i18n="chat.tags.emptyTheme">No tags yet. Start chatting with the model!</p>
+              <div class="track-gallery" id="chatTrackGallery" data-empty>
+                <div class="track-gallery__empty" data-i18n="chat.canvas.tracksEmpty">
+                  As músicas sugeridas pelo chat aparecerão aqui com um player do Spotify.
+                </div>
+                <template id="chatTrackTemplate">
+                  <article class="track-card">
+                    <figure class="track-card__artwork">
+                      <img src="" alt="" loading="lazy" />
+                    </figure>
+                    <div class="track-card__content">
+                      <header class="track-card__header">
+                        <h4 class="track-card__title"></h4>
+                        <p class="track-card__meta"></p>
+                      </header>
+                      <iframe class="track-card__player" allow="encrypted-media"></iframe>
+                    </div>
+                  </article>
+                </template>
               </div>
-            </section>
+            </div>
+          </section>
 
-            <section class="panel panel--glass tag-panel" aria-labelledby="songTagsTitle">
-              <div class="tag-panel__header">
-                <h3 class="tag-panel__title" id="songTagsTitle" data-i18n="chat.tags.songTitle">Suggested songs</h3>
-                <p class="tag-panel__description" data-i18n="chat.tags.songDescription">Quick examples to jump-start your playlist.</p>
-              </div>
-              <div class="tag-list" id="songTagList" data-empty>
-                <p class="tag-empty" data-i18n="chat.tags.emptySong">When suggestions arrive, they’ll show up here.</p>
-              </div>
-            </section>
-          </div>
+          <aside class="chat-pane chat-pane--right panel panel--glass" aria-labelledby="chatSettingsTitle">
+            <div class="chat-pane__header">
+              <h2 class="chat-pane__title" id="chatSettingsTitle" data-i18n="chat.settings.title">Configurações da sessão</h2>
+              <p class="chat-pane__description" data-i18n="chat.settings.subtitle">
+                Ajuste como as sugestões aparecem e escolha playlists para atualizar.
+              </p>
+            </div>
+            <div class="chat-settings">
+              <section class="chat-setting">
+                <div class="chat-setting__row">
+                  <div class="chat-setting__text">
+                    <h3 class="chat-setting__title" data-i18n="chat.settings.likedTitle">Enviar músicas curtidas</h3>
+                    <p class="chat-setting__description" data-i18n="chat.settings.likedDescription">
+                      Compartilhe automaticamente faixas curtidas para inspirar o modelo.
+                    </p>
+                  </div>
+                  <label class="switch">
+                    <input type="checkbox" id="chatSettingLiked" />
+                    <span class="switch__slider" aria-hidden="true"></span>
+                    <span class="sr-only" data-i18n="chat.settings.likedToggle">Toggle liked songs sharing</span>
+                  </label>
+                </div>
+              </section>
+
+              <section class="chat-setting">
+                <div class="chat-setting__row">
+                  <div class="chat-setting__text">
+                    <h3 class="chat-setting__title" data-i18n="chat.settings.discoveryTitle">Modo descobrimento</h3>
+                    <p class="chat-setting__description" data-i18n="chat.settings.discoveryDescription">
+                      Priorize novidades distantes do seu histórico para expandir suas referências.
+                    </p>
+                  </div>
+                  <label class="switch">
+                    <input type="checkbox" id="chatSettingDiscovery" />
+                    <span class="switch__slider" aria-hidden="true"></span>
+                    <span class="sr-only" data-i18n="chat.settings.discoveryToggle">Toggle discovery mode</span>
+                  </label>
+                </div>
+              </section>
+
+              <section class="chat-setting">
+                <header class="chat-setting__header">
+                  <h3 class="chat-setting__title" data-i18n="chat.settings.playlistTitle">Selecionar playlist para editar</h3>
+                  <p class="chat-setting__description" data-i18n="chat.settings.playlistDescription">
+                    Escolha uma playlist existente para refinar com as novas sugestões.
+                  </p>
+                </header>
+                <div class="chat-playlist-picker">
+                  <label class="chat-playlist-picker__label" for="chatPlaylistSelect" data-i18n="chat.playlistContext.label"
+                    >Enhance an existing playlist (optional)</label
+                  >
+                  <div class="chat-playlist-picker__controls">
+                    <select
+                      id="chatPlaylistSelect"
+                      class="chat-playlist-picker__select"
+                      aria-describedby="chatPlaylistHint"
+                      disabled
+                    >
+                      <option value="" data-i18n="chat.playlistContext.loading">Loading playlists…</option>
+                    </select>
+                    <button
+                      type="button"
+                      class="btn btn--ghost chat-playlist-picker__refresh"
+                      id="chatRefreshPlaylists"
+                      data-i18n="chat.playlistContext.refresh"
+                    >
+                      Refresh
+                    </button>
+                  </div>
+                  <p
+                    id="chatPlaylistHint"
+                    class="status"
+                    role="status"
+                    aria-live="polite"
+                    hidden
+                    aria-hidden="true"
+                  ></p>
+                </div>
+              </section>
+            </div>
+          </aside>
         </main>
       </div>
 
