@@ -1,0 +1,461 @@
+import { geminiConfig } from "../config/env";
+import { geminiClient } from "./geminiClient";
+import {
+  ChatMessage,
+  ChatPlaylistContext,
+  GeminiChatResponse,
+  GeminiTrackResolutionResponse,
+  GenerateChatSuggestionResult,
+  LikedSong,
+  Playlist,
+  Song,
+  TrackSearchCandidate,
+  UnresolvedTrackSelection,
+} from "../interfaces";
+import { log } from "../utils/logger";
+
+const MAX_CHAT_MESSAGES = 12;
+const MAX_CHAT_MESSAGE_LENGTH = 1200;
+
+export function getGeminiModel(modelName?: string) {
+  return geminiClient.getGenerativeModel({
+    model: modelName ?? geminiConfig.defaultModel,
+    generationConfig: {
+      responseMimeType: "application/json",
+    },
+  });
+}
+
+export function parseGeminiJson<T>(rawText: string): T {
+  let text = rawText.trim();
+  if (text.startsWith("```")) {
+    text = text
+      .replace(/^```(?:json)?\s*/i, "")
+      .replace(/```$/i, "")
+      .trim();
+  }
+
+  try {
+    return JSON.parse(text) as T;
+  } catch (error) {
+    const snippet = text.slice(0, 500);
+    log(
+      `Failed to parse Gemini response: ${snippet}${
+        text.length > 500 ? "..." : ""
+      }`
+    );
+    throw new Error("Gemini response was not valid JSON");
+  }
+}
+
+export async function generateGeminiJson<T>(
+  prompt: string,
+  modelName?: string
+): Promise<T> {
+  log("Sending request to Gemini API");
+  const model = getGeminiModel(modelName);
+  const result = await model.generateContent(prompt);
+  log("Received response from Gemini API");
+  const text = result.response.text();
+  return parseGeminiJson<T>(text);
+}
+
+export function sanitizeStringArray(value: unknown, limit = 8): string[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  const seen = new Set<string>();
+  const result: string[] = [];
+
+  for (const entry of value) {
+    if (typeof entry !== "string") {
+      continue;
+    }
+    const trimmed = entry.trim();
+    if (!trimmed) {
+      continue;
+    }
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) {
+      continue;
+    }
+    seen.add(key);
+    result.push(trimmed);
+    if (result.length >= limit) {
+      break;
+    }
+  }
+
+  return result;
+}
+
+export function sanitizeChatPlaylistContext(
+  raw: unknown
+): ChatPlaylistContext | undefined {
+  if (!raw || typeof raw !== "object") {
+    return undefined;
+  }
+
+  const id = typeof (raw as any).id === "string" ? (raw as any).id.trim() : "";
+  const name = typeof (raw as any).name === "string" ? (raw as any).name.trim() : "";
+  const description =
+    typeof (raw as any).description === "string"
+      ? (raw as any).description.trim()
+      : undefined;
+
+  if (!id || !name) {
+    return undefined;
+  }
+
+  const songsInput = Array.isArray((raw as any).songs) ? (raw as any).songs : [];
+  const songs: Song[] = [];
+
+  for (const entry of songsInput) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+
+    const titleRaw =
+      typeof (entry as any).title === "string"
+        ? (entry as any).title
+        : typeof (entry as any).name === "string"
+        ? (entry as any).name
+        : "";
+    const artistRaw =
+      typeof (entry as any).artist === "string"
+        ? (entry as any).artist
+        : typeof (entry as any).artistName === "string"
+        ? (entry as any).artistName
+        : "";
+
+    const title = titleRaw.trim();
+    const artist = artistRaw.trim();
+
+    if (!title || !artist) {
+      continue;
+    }
+
+    songs.push({ title, artist });
+    if (songs.length >= 120) {
+      break;
+    }
+  }
+
+  return {
+    id,
+    name,
+    description,
+    songs,
+  };
+}
+
+export function normalizeChatMessages(rawMessages: unknown): ChatMessage[] {
+  if (!Array.isArray(rawMessages)) {
+    return [];
+  }
+
+  const normalized: ChatMessage[] = [];
+
+  for (const entry of rawMessages) {
+    if (!entry || typeof entry !== "object") {
+      continue;
+    }
+
+    const role = (entry as any).role;
+    const content = (entry as any).content;
+
+    if (role !== "user" && role !== "assistant") {
+      continue;
+    }
+
+    if (typeof content !== "string") {
+      continue;
+    }
+
+    const trimmed = content.trim();
+    if (!trimmed) {
+      continue;
+    }
+
+    normalized.push({
+      role,
+      content: trimmed.slice(0, MAX_CHAT_MESSAGE_LENGTH),
+    });
+  }
+
+  if (!normalized.length) {
+    return [];
+  }
+
+  return normalized.slice(-MAX_CHAT_MESSAGES);
+}
+
+export function buildChatPrompt(
+  messages: ChatMessage[],
+  playlistContext?: ChatPlaylistContext | null
+): string {
+  const transcript = messages
+    .map((message) => `${message.role === "assistant" ? "Assistant" : "User"}: ${message.content}`)
+    .join("\n");
+
+  let playlistSection = "";
+  if (playlistContext) {
+    const songList = (playlistContext.songs || [])
+      .slice(0, 40)
+      .map((song) => `- ${song.title} — ${song.artist}`)
+      .join("\n");
+
+    const details: string[] = [
+      "",
+      "Existing playlist to enhance:",
+      `Name: ${playlistContext.name}`,
+    ];
+
+    if (playlistContext.description) {
+      details.push(`Description: ${playlistContext.description}`);
+    }
+
+    details.push(`Song count: ${playlistContext.songs.length}`);
+
+    if (songList) {
+      details.push("Current tracklist highlights:");
+      details.push(songList);
+    }
+
+    playlistSection = `${details.join("\n")}\n`;
+  }
+
+  return `You are Geminify's playlist ideation assistant. Your task is to help users shape playlist ideas, moods, storylines, and track inspirations.
+
+${
+    playlistContext
+      ? `The user wants to enhance the Spotify playlist described below. Respect what already works and suggest thoughtful evolutions.${playlistSection}\n`
+      : ""
+  }
+
+Conversation so far:
+${transcript}
+
+Reply to the most recent user message. Respond in the same language the user used.
+
+Return ONLY a JSON object with the following shape:
+{
+  "reply": "Your conversational reply to the user (1-3 sentences)",
+  "themeTags": ["Short mood or context tags"],
+  "songExamples": ["Song Title — Artist"]
+}
+
+Rules:
+- Always include the "reply" field with friendly, practical guidance.
+- Provide up to 6 concise theme tags capturing moods, genres, settings, or references. Use [] if no tags are appropriate.
+- Provide up to 6 song examples as strings with track names (optionally artists). Use [] if you cannot suggest songs confidently.
+- Avoid duplicate tags or songs. Return valid JSON without markdown fences or commentary.
+- When a playlist is supplied, reference it in your reply, highlight complementary additions, and only suggest replacing existing songs if it improves flow significantly.`;
+}
+
+export async function generateChatSuggestion(
+  messages: ChatMessage[],
+  modelName?: string,
+  playlistContext?: ChatPlaylistContext | null
+): Promise<GenerateChatSuggestionResult> {
+  if (!messages.length) {
+    throw new Error("Chat messages are required");
+  }
+
+  const prompt = buildChatPrompt(messages, playlistContext);
+  const response = await generateGeminiJson<GeminiChatResponse>(prompt, modelName);
+
+  const reply = typeof response.reply === "string" ? response.reply.trim() : "";
+  if (!reply) {
+    throw new Error("Gemini response did not contain a reply");
+  }
+
+  const themeTags = sanitizeStringArray(response.themeTags ?? response.tags);
+  const songExamples = sanitizeStringArray(response.songExamples ?? response.songTags);
+
+  return { reply, themeTags, songExamples };
+}
+
+export async function generateCustomPlaylistWithGemini(
+  userPrompt: string,
+  modelName?: string
+): Promise<Playlist> {
+  log("Generating custom playlist with Gemini");
+  const prompt = `
+You are an innovative AI DJ tasked with creating a unique and engaging playlist based on the following user prompt:
+
+"${userPrompt}"
+
+Instructions:
+1. Create a playlist with 20-25 songs that fits the theme or mood described in the prompt.
+2. Give the playlist a creative, catchy name that reflects its theme.
+3. Provide a brief, engaging description for the playlist (max 50 words).
+4. Include a mix of well-known and lesser-known tracks that fit the theme.
+5. Make unexpected connections between songs where appropriate.
+6. Avoid overly obvious song choices; aim for originality and creativity in selections.
+
+Diversity and theme balance:
+7. Include 2-3 songs from artists specifically mentioned in the user prompt.
+8. Allow up to 3 songs per artist, but aim for variety when possible.
+9. Include at least 3 lesser-known or up-and-coming artists in the genre.
+10. Include artists from at least 3 different countries.
+11. Include 1-2 crossover tracks from related genres that fit the overall mood and theme.
+
+Song selection process:
+12. Prioritize maintaining the theme and mood of the playlist over strict diversity rules.
+13. For each song, consider how it fits the theme and contributes to the playlist's overall feel.
+14. If including multiple songs from one artist, ensure they showcase different aspects of their style.
+15. Consider instrumental tracks or remixes that fit the theme to add variety.
+
+Respond with a JSON object representing the playlist. The object should have the following structure:
+{
+  "name": "Playlist Name",
+  "description": "Brief, engaging description of the playlist (max 50 words)",
+  "songs": [
+    {
+      "title": "Song Title",
+      "artist": "Artist Name",
+      "country": "Artist's Country of Origin"
+    },
+    ...
+  ]
+}
+
+Your response should contain only the JSON object, with no additional text or explanation.
+  `;
+
+  return generateGeminiJson<Playlist>(prompt, modelName);
+}
+
+export async function generatePlaylistsWithGemini(
+  likedSongs: LikedSong[],
+  modelName?: string
+): Promise<Playlist[]> {
+  log(
+    `Generating playlists with Gemini${
+      modelName ? ` model ${modelName}` : ""
+    }`
+  );
+  const prompt = `
+    You are an innovative AI DJ tasked with creating unique and engaging playlists from a user's collection of liked songs. Your goal is to surprise and delight the user with unexpected combinations and creative themes.
+
+    Instructions:
+    1. Create 5-7 distinctive playlists.
+    2. Each playlist should have 15-30 songs, but the exact number can vary based on the theme.
+    3. Give each playlist a creative, catchy name that reflects its theme.
+    4. Provide a brief, engaging description for each playlist.
+    5. Think beyond generic categories like genre or era. Consider themes based on:
+       - Specific moods or emotions
+       - Narrative arcs
+       - Unconventional connections between songs
+       - Imaginary scenarios
+    6. Include a mix of well-known and lesser-known tracks in each playlist.
+    7. Make unexpected connections between songs where appropriate.
+
+    Respond with a JSON array of playlist objects. Each playlist object should have the following structure:
+    {
+      "name": "Playlist Name",
+      "description": "Brief, engaging description of the playlist",
+      "songs": [
+        {
+          "title": "Song Title",
+          "artist": "Artist Name"
+        },
+        ...
+      ]
+    }
+
+    Your response should contain only the JSON array, with no additional text or explanation.
+
+    Here's the list of liked songs:
+    ${JSON.stringify(likedSongs)}
+  `;
+
+  return generateGeminiJson<Playlist[]>(prompt, modelName);
+}
+
+export async function resolveMissingTracksWithGemini(
+  context: { name: string; description?: string },
+  unresolved: UnresolvedTrackSelection[],
+  modelName?: string
+): Promise<Map<number, TrackSearchCandidate>> {
+  if (!unresolved.length) {
+    return new Map();
+  }
+
+  const payload = {
+    playlist: {
+      name: context.name,
+      description: context.description ?? "",
+    },
+    unresolved: unresolved.map((item) => ({
+      index: item.index,
+      requested: item.requested,
+      searchQuery: item.searchQuery,
+      candidates: item.candidates.map((candidate) => ({
+        uri: candidate.uri,
+        title: candidate.title,
+        artist: candidate.artist,
+        album: candidate.album,
+        popularity: candidate.popularity,
+        explicit: candidate.explicit,
+        durationMs: candidate.durationMs,
+        releaseYear: candidate.releaseYear,
+      })),
+    })),
+  };
+
+  const prompt = `You are a meticulous music curator helping Geminify finalize Spotify playlists.
+
+We attempted to match several requested songs to Spotify tracks but couldn't confirm the correct version automatically.
+Review the unresolved entries and choose the best candidate URI for each song when a confident match exists. If none of the candidates match, return null for that song.
+
+Always prefer candidates where both title and artist align with the requested song. If multiple candidates could work, pick the one with the closest title and primary artist match.
+
+Return ONLY valid JSON matching this schema:
+{
+  "choices": [
+    { "index": number, "selectedUri": "spotify:track:..." | null }
+  ]
+}
+
+Do not invent URIs that are not listed in the candidates. If unsure, use null.
+
+Here is the data you must consider:
+${JSON.stringify(payload)}
+`;
+
+  const response = await generateGeminiJson<GeminiTrackResolutionResponse>(
+    prompt,
+    modelName
+  );
+  const choices = Array.isArray(response.choices) ? response.choices : [];
+  const resolution = new Map<number, TrackSearchCandidate>();
+
+  for (const choice of choices) {
+    if (!choice || typeof choice.index !== "number") {
+      continue;
+    }
+
+    const selectedUri =
+      typeof choice.selectedUri === "string" && choice.selectedUri.trim()
+        ? choice.selectedUri.trim()
+        : undefined;
+
+    if (!selectedUri) {
+      continue;
+    }
+
+    const target = unresolved.find((item) => item.index === choice.index);
+    const candidate = target?.candidates.find(
+      (entry) => entry.uri === selectedUri
+    );
+
+    if (candidate) {
+      resolution.set(choice.index, candidate);
+    }
+  }
+
+  return resolution;
+}

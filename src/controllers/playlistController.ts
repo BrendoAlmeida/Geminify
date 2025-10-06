@@ -1,0 +1,618 @@
+import { Router } from "express";
+import { promises as fs } from "fs";
+import statusBroadcaster, { StatusContext } from "../services/statusBroadcaster";
+import {
+	getAllLikedSongs,
+	generateOrLoadPlaylists,
+	generateGenrePlaylists,
+	loadOrGeneratePlaylistsForPreview,
+	findTrackUris,
+	resolveUnresolvedTracks,
+	sanitizePlaylist,
+	broadcastPlaylistSongs,
+	createCustomPlaylist,
+	extractSpotifyPlaylistId,
+	requestQueue,
+} from "../services/playlistService";
+import { savedPlaylistsPath } from "../config/paths";
+import { formatSpotifyError } from "../utils/errors";
+import { log } from "../utils/logger";
+import { spotifyApi } from "../services/spotifyClient";
+import { sleep } from "../utils/sleep";
+import { clearTokenFile } from "../services/spotifyAuthService";
+import { PlaylistPreview } from "../interfaces";
+
+const playlistController = Router();
+
+function createStatusContext(operation: string): StatusContext | undefined {
+	return statusBroadcaster.hasSubscribers()
+		? statusBroadcaster.createContext(operation)
+		: undefined;
+}
+
+playlistController.get("/liked-songs", async (_req, res) => {
+	const statusContext = createStatusContext("liked-songs");
+
+	try {
+		log("Fetching liked songs");
+		const songs = await getAllLikedSongs(statusContext);
+		log(`Fetched ${songs.length} liked songs`);
+		res.json(songs);
+	} catch (error) {
+		const message = formatSpotifyError(error);
+		log(`Error fetching liked songs: ${message}`);
+		if (statusContext) {
+			statusBroadcaster.statusError(statusContext, { message });
+		}
+		res.status(500).json({ error: message });
+	}
+});
+
+playlistController.get("/generate-playlists", async (req, res) => {
+	const statusContext = createStatusContext("generate-playlists");
+	const modelParam = Array.isArray(req.query.model)
+		? req.query.model[0]
+		: req.query.model;
+	const modelName = typeof modelParam === "string" ? modelParam.trim() || undefined : undefined;
+
+	try {
+		log("Generating playlists");
+		const likedSongs = await getAllLikedSongs(statusContext);
+
+		if (statusContext) {
+			statusBroadcaster.geminiStart(statusContext, {
+				model: modelName,
+				label: "Generating playlists with Gemini…",
+			});
+		}
+
+		const playlists = await generateOrLoadPlaylists(likedSongs, modelName);
+		broadcastPlaylistSongs(playlists, statusContext);
+
+		if (statusContext) {
+			statusBroadcaster.geminiComplete(statusContext, {
+				totalPlaylists: playlists.length,
+				label: "Playlists ready!",
+			});
+		}
+
+		await fs.writeFile(savedPlaylistsPath, JSON.stringify(playlists, null, 2));
+		log(`Generated ${playlists.length} playlists and saved to disk`);
+
+		res.json(playlists);
+	} catch (error) {
+		const message = formatSpotifyError(error);
+		log(`Error generating playlists: ${message}`);
+		if (statusContext) {
+			statusBroadcaster.statusError(statusContext, { message });
+		}
+		res.status(500).json({ error: message });
+	}
+});
+
+playlistController.get("/genre-playlists", async (_req, res) => {
+	const statusContext = createStatusContext("genre-playlists");
+
+	try {
+		const playlists = await generateGenrePlaylists(statusContext);
+		const totalSongs = playlists.reduce((total, playlist) => total + playlist.count, 0);
+
+		res.json({
+			playlists,
+			summary: {
+				totalPlaylists: playlists.length,
+				totalSongs,
+			},
+		});
+	} catch (error) {
+		const message = formatSpotifyError(error);
+		log(`Error generating genre playlists: ${message}`);
+		if (statusContext) {
+			statusBroadcaster.statusError(statusContext, { message });
+		}
+		res.status(500).json({ error: message });
+	}
+});
+
+playlistController.get("/preview-playlists", async (req, res) => {
+	const statusContext = createStatusContext("preview");
+	const modelParam = Array.isArray(req.query.model)
+		? req.query.model[0]
+		: req.query.model;
+	const modelName = typeof modelParam === "string" ? modelParam.trim() || undefined : undefined;
+
+	try {
+		if (statusContext) {
+			statusBroadcaster.geminiStart(statusContext, {
+				model: modelName,
+				label: "Generating surprise playlists…",
+			});
+		}
+
+		const playlists = await loadOrGeneratePlaylistsForPreview(modelName, statusContext);
+		broadcastPlaylistSongs(playlists, statusContext);
+
+		if (statusContext) {
+			statusBroadcaster.geminiComplete(statusContext, {
+				totalPlaylists: playlists.length,
+				label: "Surprise playlists ready!",
+			});
+		}
+
+		const previewPayload: PlaylistPreview[] = [];
+
+		for (const playlist of playlists) {
+			try {
+				const sanitized = sanitizePlaylist(playlist);
+				const { uris, unresolved } = await findTrackUris(
+					sanitized.songs,
+					sanitized.name
+				);
+
+				let trackUris = [...uris];
+				if (unresolved.length) {
+					if (statusContext) {
+						statusBroadcaster.statusMessage(statusContext, {
+							message: `Verifying ${unresolved.length} tracks with Gemini…`,
+						});
+					}
+
+					const { uris: resolvedUris, resolvedCount } = await resolveUnresolvedTracks(
+						sanitized,
+						unresolved,
+						modelName
+					);
+
+					resolvedUris.forEach((uri, index) => {
+						if (typeof uri === "string" && uri) {
+							trackUris[index] = uri;
+						}
+					});
+
+					if (statusContext) {
+						const remaining = unresolved.length - resolvedCount;
+						statusBroadcaster.statusMessage(statusContext, {
+							message:
+								remaining > 0
+									? `Matched ${resolvedCount} tracks after review. ${remaining} still need attention.`
+									: `Matched all ${resolvedCount} tracks after Gemini review!`,
+						});
+					}
+				}
+
+				const validTrackUris = trackUris.filter(
+					(uri): uri is string => typeof uri === "string" && Boolean(uri)
+				);
+
+				if (!validTrackUris.length) {
+					log(`No valid tracks found for playlist: ${sanitized.name}`);
+					continue;
+				}
+
+				const newPlaylist = await requestQueue.add(() =>
+					spotifyApi.createPlaylist(sanitized.name, {
+						description: sanitized.description,
+						public: false,
+					})
+				);
+
+				const batchSize = 100;
+				for (let i = 0; i < validTrackUris.length; i += batchSize) {
+					const batch = validTrackUris.slice(i, i + batchSize);
+					await requestQueue.add(() =>
+						spotifyApi.addTracksToPlaylist(newPlaylist.body.id, batch)
+					);
+				}
+
+				previewPayload.push({
+					id: newPlaylist.body.id,
+					name: sanitized.name,
+					description: sanitized.description,
+					embedUrl: `https://open.spotify.com/embed/playlist/${newPlaylist.body.id}?utm_source=generator`,
+					spotifyUrl: `https://open.spotify.com/playlist/${newPlaylist.body.id}`,
+					songs: sanitized.songs,
+				});
+			} catch (error) {
+				const message = formatSpotifyError(error);
+				log(`Error processing playlist "${playlist.name}": ${message}`);
+			}
+		}
+
+		if (!previewPayload.length) {
+			throw new Error("No valid playlists could be created");
+		}
+
+		res.json({ playlists: previewPayload });
+	} catch (error) {
+		const message = formatSpotifyError(error);
+		log(`Error creating preview playlists: ${message}`);
+		if (statusContext) {
+			statusBroadcaster.statusError(statusContext, { message });
+		}
+		res.status(500).json({ error: message });
+	}
+});
+
+playlistController.get("/user-playlists", async (_req, res) => {
+	try {
+		const limit = 50;
+		let offset = 0;
+		const maxPlaylists = 200;
+
+		const meResponse = await requestQueue.add(() => spotifyApi.getMe());
+		const currentUserId = meResponse.body?.id ?? "";
+		const currentUserDisplayName =
+			meResponse.body?.display_name || currentUserId || undefined;
+
+		const collected: Array<{
+			id: string;
+			name: string;
+			description: string;
+			trackCount: number;
+			collaborative: boolean;
+			canEdit: boolean;
+			owner?: string;
+			image?: string | null;
+		}> = [];
+
+		while (collected.length < maxPlaylists) {
+			const response = await requestQueue.add(() =>
+				spotifyApi.getUserPlaylists({ limit, offset })
+			);
+			const items = response.body?.items ?? [];
+			const total = typeof response.body?.total === "number" ? response.body.total : undefined;
+
+			for (const playlist of items) {
+				if (!playlist?.id || !playlist?.name) continue;
+
+				const ownerId = playlist.owner?.id ?? "";
+				const isOwnedByUser = Boolean(currentUserId && ownerId === currentUserId);
+				const isCollaborative = Boolean(playlist.collaborative);
+				const canEdit = isOwnedByUser || isCollaborative;
+
+				if (!canEdit) {
+					continue;
+				}
+
+				const ownerLabel =
+					isOwnedByUser && currentUserDisplayName
+						? currentUserDisplayName
+						: playlist.owner?.display_name || playlist.owner?.id;
+
+				collected.push({
+					id: playlist.id,
+					name: playlist.name,
+					description: playlist.description ?? "",
+					trackCount: playlist.tracks?.total ?? 0,
+					collaborative: Boolean(playlist.collaborative),
+					canEdit,
+					owner: ownerLabel,
+					image: playlist.images?.[0]?.url ?? null,
+				});
+
+				if (collected.length >= maxPlaylists) {
+					break;
+				}
+			}
+
+			offset += items.length;
+			const reachedEnd =
+				!items.length ||
+				(typeof total === "number" ? offset >= total : items.length < limit);
+			if (reachedEnd) {
+				break;
+			}
+		}
+
+		res.json({ playlists: collected });
+	} catch (error) {
+		const message = formatSpotifyError(error);
+		log(`Error fetching user playlists: ${message}`);
+
+		const statusCode = (error as any)?.statusCode ?? (error as any)?.body?.error?.status;
+
+		if (statusCode === 401 || statusCode === 403) {
+			await clearTokenFile();
+			return res.status(statusCode).json({
+				error:
+					statusCode === 401
+						? "We need you to sign in to Spotify again."
+						: "Spotify asked for new permissions to list your playlists. Please log in again to continue.",
+			});
+		}
+
+		res.status(500).json({ error: "Failed to load playlists from Spotify." });
+	}
+});
+
+playlistController.get("/playlist-details", async (req, res) => {
+	const rawId = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
+	const playlistId = extractSpotifyPlaylistId(
+		typeof rawId === "string" ? rawId.trim() : undefined
+	);
+
+	if (!playlistId) {
+		return res.status(400).json({ error: "Playlist ID is required." });
+	}
+
+	try {
+		const playlistResponse = await requestQueue.add(() =>
+			spotifyApi.getPlaylist(playlistId)
+		);
+
+		const playlist = playlistResponse.body;
+		if (!playlist) {
+			throw new Error("Playlist not found.");
+		}
+
+		const songs: Array<{ title: string; artist: string }> = [];
+		const totalTracks = playlist.tracks?.total ?? 0;
+		const initialItems = playlist.tracks?.items ?? [];
+
+		initialItems.forEach((item) => {
+			const track = item.track as SpotifyApi.TrackObjectFull | null | undefined;
+			if (!track?.name) return;
+			const artistName = track.artists?.[0]?.name;
+			if (!artistName) return;
+			songs.push({ title: track.name, artist: artistName });
+		});
+
+		let offset = initialItems.length;
+		const limit = 100;
+
+		while (offset < totalTracks && songs.length < 400) {
+			const remaining = totalTracks - offset;
+			const batchLimit = Math.min(limit, remaining);
+			const batch = await requestQueue.add(() =>
+				spotifyApi.getPlaylistTracks(playlistId, {
+					offset,
+					limit: batchLimit,
+				})
+			);
+
+			(batch.body.items || []).forEach((item) => {
+				const track = item.track as SpotifyApi.TrackObjectFull | null | undefined;
+				if (!track?.name) return;
+				const artistName = track.artists?.[0]?.name;
+				if (!artistName) return;
+				songs.push({ title: track.name, artist: artistName });
+			});
+
+			offset += batchLimit;
+
+			if (offset < totalTracks) {
+				await sleep(120);
+			}
+		}
+
+		res.json({
+			playlist: {
+				id: playlist.id,
+				name: playlist.name,
+				description: playlist.description ?? "",
+				songs,
+			},
+		});
+	} catch (error) {
+		const statusCode = (error as any)?.statusCode ?? (error as any)?.body?.error?.status;
+		const message = formatSpotifyError(error);
+		log(`Playlist details error: ${message}`);
+
+		if (statusCode === 401) {
+			return res.status(401).json({ error: "Log in with Spotify to continue." });
+		}
+
+		if (statusCode === 403) {
+			return res.status(403).json({ error: "We don't have permission to view that playlist." });
+		}
+
+		if (statusCode === 404) {
+			return res.status(404).json({ error: "Playlist not found." });
+		}
+
+		res.status(500).json({ error: "Failed to load playlist details." });
+	}
+});
+
+playlistController.post("/create-custom-playlist", async (req, res) => {
+	const statusContext = createStatusContext("custom");
+	const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
+
+	if (!prompt) {
+		return res.status(400).json({ error: "Prompt is required" });
+	}
+
+	const playlistReference =
+		typeof req.body?.playlistId === "string" ? req.body.playlistId.trim() : "";
+	const targetPlaylistId = extractSpotifyPlaylistId(playlistReference);
+
+	if (playlistReference && !targetPlaylistId) {
+		return res.status(400).json({
+			error: "Could not understand that playlist link. Paste a Spotify playlist URL or ID.",
+		});
+	}
+
+	const modelParam = typeof req.body?.model === "string" ? req.body.model.trim() : undefined;
+	const modelName = modelParam || undefined;
+
+	try {
+		let existingPlaylist: SpotifyApi.PlaylistObjectFull | null = null;
+
+		if (targetPlaylistId) {
+			try {
+				const playlistResponse = await requestQueue.add(() =>
+					spotifyApi.getPlaylist(targetPlaylistId)
+				);
+				existingPlaylist = playlistResponse.body;
+			} catch (error) {
+				const statusCode = (error as any)?.statusCode;
+				const formatted = formatSpotifyError(error);
+				log(`Failed to load target playlist ${targetPlaylistId}: ${formatted}`);
+
+				if (statusCode === 404) {
+					return res.status(404).json({
+						error: "We couldn't find that playlist. Make sure the link is correct and try again.",
+					});
+				}
+
+				if (statusCode === 403) {
+					return res.status(403).json({
+						error: "We can't edit that playlist. Check that you own it or it's collaborative.",
+					});
+				}
+
+				throw error;
+			}
+		}
+
+		if (statusContext) {
+			statusBroadcaster.geminiStart(statusContext, {
+				model: modelName,
+				label: targetPlaylistId
+					? "Refreshing your playlist with new ideas…"
+					: "Creating your custom playlist…",
+				promptPreview: prompt.slice(0, 160),
+			});
+		}
+
+		const customPlaylist = await createCustomPlaylist(prompt, modelName);
+		const sanitized = sanitizePlaylist(customPlaylist);
+
+		broadcastPlaylistSongs(sanitized, statusContext);
+
+		const { uris, unresolved } = await findTrackUris(
+			sanitized.songs,
+			sanitized.name
+		);
+
+		let trackUris = [...uris];
+		if (unresolved.length) {
+			if (statusContext) {
+				statusBroadcaster.statusMessage(statusContext, {
+					message: `Verifying ${unresolved.length} tracks with Gemini…`,
+				});
+			}
+
+			const { uris: resolvedUris, resolvedCount } = await resolveUnresolvedTracks(
+				sanitized,
+				unresolved,
+				modelName
+			);
+
+			resolvedUris.forEach((uri, index) => {
+				if (typeof uri === "string" && uri) {
+					trackUris[index] = uri;
+				}
+			});
+
+			if (statusContext) {
+				const remaining = unresolved.length - resolvedCount;
+				statusBroadcaster.statusMessage(statusContext, {
+					message:
+						remaining > 0
+							? `Matched ${resolvedCount} tracks after review. ${remaining} still need attention.`
+							: `Matched all ${resolvedCount} tracks after Gemini review!`,
+				});
+			}
+		}
+
+		const validTrackUris = trackUris.filter(
+			(uri): uri is string => typeof uri === "string" && Boolean(uri)
+		);
+
+		if (!validTrackUris.length) {
+			return res
+				.status(404)
+				.json({ error: "No valid tracks found for the custom playlist" });
+		}
+
+		const uniqueTrackUris = Array.from(new Set(validTrackUris));
+
+		let responsePayload: {
+			id: string;
+			name: string;
+			description: string;
+			embedUrl: string;
+			spotifyUrl: string;
+			songs: typeof sanitized.songs;
+			upgraded?: boolean;
+		};
+
+		if (targetPlaylistId && existingPlaylist) {
+			await requestQueue.add(() =>
+				spotifyApi.addTracksToPlaylist(targetPlaylistId, uniqueTrackUris)
+			);
+
+			const description = sanitized.description
+				? sanitized.description
+				: existingPlaylist?.description || sanitized.name;
+
+			if (description) {
+				try {
+					await requestQueue.add(() =>
+						spotifyApi.changePlaylistDetails(targetPlaylistId, {
+							description,
+						})
+					);
+				} catch (error) {
+					log(
+						`Failed to update playlist description for ${targetPlaylistId}: ${formatSpotifyError(
+							error
+						)}`
+					);
+				}
+			}
+
+			responsePayload = {
+				id: targetPlaylistId,
+				name: existingPlaylist?.name || sanitized.name,
+				description,
+				embedUrl: `https://open.spotify.com/embed/playlist/${targetPlaylistId}?utm_source=generator`,
+				spotifyUrl: `https://open.spotify.com/playlist/${targetPlaylistId}`,
+				songs: sanitized.songs,
+				upgraded: true,
+			};
+		} else {
+			const newPlaylist = await requestQueue.add(() =>
+				spotifyApi.createPlaylist(sanitized.name, {
+					description: sanitized.description,
+					public: false,
+				})
+			);
+
+			await requestQueue.add(() =>
+				spotifyApi.addTracksToPlaylist(newPlaylist.body.id, uniqueTrackUris)
+			);
+
+			responsePayload = {
+				id: newPlaylist.body.id,
+				name: sanitized.name,
+				description: sanitized.description,
+				embedUrl: `https://open.spotify.com/embed/playlist/${newPlaylist.body.id}?utm_source=generator`,
+				spotifyUrl: `https://open.spotify.com/playlist/${newPlaylist.body.id}`,
+				songs: sanitized.songs,
+			};
+		}
+
+		if (statusContext) {
+			statusBroadcaster.geminiComplete(statusContext, {
+				totalPlaylists: 1,
+				label: targetPlaylistId
+					? "Suggestions ready to refresh your playlist!"
+					: "Custom playlist ready!",
+				songs: sanitized.songs.slice(0, 80),
+			});
+		}
+
+		res.json({ playlist: responsePayload });
+	} catch (error) {
+		const message = formatSpotifyError(error);
+		log(`Error creating custom playlist: ${message}`);
+		if (statusContext) {
+			statusBroadcaster.statusError(statusContext, { message });
+		}
+		res.status(500).json({ error: message });
+	}
+});
+
+export default playlistController;

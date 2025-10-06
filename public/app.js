@@ -1723,10 +1723,6 @@ function switchView(target) {
     button.classList.toggle("is-active", isActive);
     button.setAttribute("aria-pressed", String(isActive));
   });
-
-  if (target === "chat" && chatInput) {
-    setTimeout(() => chatInput.focus(), 160);
-  }
 }
 
 function appendChatMessage(role, content) {

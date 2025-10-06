@@ -1,7 +1,8 @@
-import { exponentialBackoff } from "./utils";
+import { exponentialBackoff } from "../utils/backoff";
 
 export class RequestQueue {
-  private queue: (() => Promise<any>)[] = [];
+  private queue: Array<() => Promise<void>> = [];
+
   private isProcessing = false;
 
   async add<T>(fn: () => Promise<T>): Promise<T> {
@@ -20,14 +21,17 @@ export class RequestQueue {
 
   private async process() {
     if (this.isProcessing) return;
+
     this.isProcessing = true;
+
     while (this.queue.length > 0) {
       const request = this.queue.shift();
       if (request) {
         await request();
-        await new Promise((resolve) => setTimeout(resolve, 50)); // 50ms delay between requests
+        await new Promise((resolve) => setTimeout(resolve, 50));
       }
     }
+
     this.isProcessing = false;
   }
 }
