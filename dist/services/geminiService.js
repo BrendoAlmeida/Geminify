@@ -1,6 +1,12 @@
+import { createHash } from "crypto";
 import { geminiConfig } from "../config/env";
 import { geminiClient } from "./geminiClient";
 import { log } from "../utils/logger";
+import { spotifyApi } from "./spotifyClient";
+import { MissingTokenError, refreshTokenIfNeeded } from "./spotifyAuthService";
+import { normalizeForMatch, extractArtistTokens } from "../utils/spotify";
+import { formatSpotifyError } from "../utils/errors";
+import { sleep } from "../utils/sleep";
 const MAX_CHAT_MESSAGES = 12;
 const MAX_CHAT_MESSAGE_LENGTH = 1200;
 export function getGeminiModel(modelName) {
@@ -61,6 +67,182 @@ export function sanitizeStringArray(value, limit = 8) {
         }
     }
     return result;
+}
+function createSuggestionId(seed) {
+    return createHash("sha1").update(seed).digest("hex");
+}
+function parseSongExample(example) {
+    const raw = example.trim();
+    if (!raw) {
+        return { title: "" };
+    }
+    const separatorMatch = raw.match(/\s[–—-]\s/);
+    if (!separatorMatch) {
+        return { title: raw };
+    }
+    const separator = separatorMatch[0];
+    const index = raw.indexOf(separator);
+    const title = raw.slice(0, index).trim();
+    const artist = raw.slice(index + separator.length).trim();
+    return {
+        title: title || raw,
+        artist: artist || undefined,
+    };
+}
+function buildFallbackSuggestion(parsed, example, index) {
+    const baseTitle = parsed.title || example.trim();
+    const baseArtist = parsed.artist ?? "";
+    const id = createSuggestionId(`${baseTitle}:${baseArtist}:${index}`);
+    return {
+        id,
+        title: baseTitle,
+        artist: baseArtist,
+        album: undefined,
+        previewUrl: null,
+        uri: null,
+        spotifyUrl: undefined,
+        imageUrl: undefined,
+    };
+}
+function scoreTrackMatch(track, parsed) {
+    if (!track?.name) {
+        return -Infinity;
+    }
+    const requestedTitle = normalizeForMatch(parsed.title);
+    const trackTitle = normalizeForMatch(track.name);
+    if (!requestedTitle || !trackTitle) {
+        return -Infinity;
+    }
+    let score = 0;
+    if (trackTitle === requestedTitle) {
+        score += 6;
+    }
+    else if (trackTitle.includes(requestedTitle) || requestedTitle.includes(trackTitle)) {
+        score += 4;
+    }
+    if (parsed.artist) {
+        const requestedTokens = extractArtistTokens(parsed.artist);
+        if (requestedTokens.length) {
+            const candidateArtists = (track.artists ?? [])
+                .map((artist) => normalizeForMatch(artist?.name))
+                .filter(Boolean);
+            if (candidateArtists.length) {
+                const hasMatch = requestedTokens.some((token) => candidateArtists.some((candidate) => candidate === token ||
+                    candidate.includes(token) ||
+                    token.includes(candidate)));
+                score += hasMatch ? 5 : -2;
+            }
+        }
+    }
+    if (track.preview_url) {
+        score += 0.75;
+    }
+    score += track.popularity / 120;
+    return score;
+}
+function mapTrackToSuggestion(track, parsed, index) {
+    const artists = (track.artists ?? []).map((artist) => artist?.name).filter(Boolean);
+    const albumImages = track.album?.images ?? [];
+    const id = track.id ? track.id : createSuggestionId(`${track.uri ?? track.name}:${index}`);
+    return {
+        id,
+        title: track.name ?? parsed.title,
+        artist: artists.length ? artists.join(", ") : parsed.artist ?? "",
+        album: track.album?.name ?? undefined,
+        previewUrl: typeof track.preview_url === "string" ? track.preview_url : null,
+        uri: track.uri ?? null,
+        spotifyUrl: track.external_urls?.spotify ?? undefined,
+        imageUrl: albumImages[1]?.url ?? albumImages[0]?.url ?? undefined,
+    };
+}
+async function findBestTrackForSuggestion(parsed, example) {
+    if (!parsed.title) {
+        return null;
+    }
+    const title = parsed.title;
+    const queries = parsed.artist
+        ? [
+            `track:${title} artist:${parsed.artist}`,
+            `${title} ${parsed.artist}`,
+            title,
+        ]
+        : [
+            `track:${title}`,
+            title,
+        ];
+    for (const query of queries) {
+        try {
+            const searchResponse = await spotifyApi.searchTracks(query, { limit: 20 });
+            const items = searchResponse.body.tracks?.items ?? [];
+            if (!items.length) {
+                continue;
+            }
+            let best = null;
+            let bestScore = -Infinity;
+            for (const track of items) {
+                const score = scoreTrackMatch(track, parsed);
+                if (score > bestScore) {
+                    best = track;
+                    bestScore = score;
+                }
+            }
+            if (best) {
+                return best;
+            }
+        }
+        catch (error) {
+            const statusCode = error?.statusCode;
+            if (statusCode === 429) {
+                await sleep(320);
+                continue;
+            }
+            log(`Spotify search error for chat suggestion "${example}": ${formatSpotifyError(error)}`);
+        }
+    }
+    return null;
+}
+async function resolveChatSongSuggestions(songExamples) {
+    if (!songExamples.length) {
+        return [];
+    }
+    try {
+        await refreshTokenIfNeeded();
+    }
+    catch (error) {
+        if (error instanceof MissingTokenError) {
+            log("Spotify authentication missing for chat suggestions; returning basic entries.");
+        }
+        else {
+            log(`Failed to refresh Spotify token for chat suggestions: ${formatSpotifyError(error)}`);
+        }
+        return songExamples.map((example, index) => buildFallbackSuggestion(parseSongExample(example), example, index));
+    }
+    const suggestions = [];
+    for (let index = 0; index < songExamples.length; index += 1) {
+        const example = songExamples[index];
+        const parsed = parseSongExample(example);
+        if (!parsed.title) {
+            suggestions.push(buildFallbackSuggestion(parsed, example, index));
+            continue;
+        }
+        try {
+            const track = await findBestTrackForSuggestion(parsed, example);
+            if (track) {
+                suggestions.push(mapTrackToSuggestion(track, parsed, index));
+            }
+            else {
+                suggestions.push(buildFallbackSuggestion(parsed, example, index));
+            }
+        }
+        catch (error) {
+            log(`Failed to resolve chat song suggestion "${example}": ${formatSpotifyError(error)}`);
+            suggestions.push(buildFallbackSuggestion(parsed, example, index));
+        }
+        if (index < songExamples.length - 1) {
+            await sleep(140);
+        }
+    }
+    return suggestions;
 }
 export function sanitizeChatPlaylistContext(raw) {
     if (!raw || typeof raw !== "object") {
@@ -184,7 +366,7 @@ Return ONLY a JSON object with the following shape:
 Rules:
 - Always include the "reply" field with friendly, practical guidance.
 - Provide up to 6 concise theme tags capturing moods, genres, settings, or references. Use [] if no tags are appropriate.
-- Provide up to 6 song examples as strings with track names (optionally artists). Use [] if you cannot suggest songs confidently.
+- Provide up to 12 song examples as strings with track names (optionally artists). Use [] if you cannot suggest songs confidently.
 - Avoid duplicate tags or songs. Return valid JSON without markdown fences or commentary.
 - When a playlist is supplied, reference it in your reply, highlight complementary additions, and only suggest replacing existing songs if it improves flow significantly.`;
 }
@@ -199,8 +381,18 @@ export async function generateChatSuggestion(messages, modelName, playlistContex
         throw new Error("Gemini response did not contain a reply");
     }
     const themeTags = sanitizeStringArray(response.themeTags ?? response.tags);
-    const songExamples = sanitizeStringArray(response.songExamples ?? response.songTags);
-    return { reply, themeTags, songExamples };
+    const songExamples = sanitizeStringArray(response.songExamples ?? response.songTags, 12);
+    let songSuggestions = [];
+    if (songExamples.length) {
+        try {
+            songSuggestions = await resolveChatSongSuggestions(songExamples);
+        }
+        catch (error) {
+            log(`Failed to enrich chat song suggestions: ${formatSpotifyError(error)}`);
+            songSuggestions = songExamples.map((example, index) => buildFallbackSuggestion(parseSongExample(example), example, index));
+        }
+    }
+    return { reply, themeTags, songExamples, songSuggestions };
 }
 export async function generateCustomPlaylistWithGemini(userPrompt, modelName) {
     log("Generating custom playlist with Gemini");

@@ -14,6 +14,113 @@ function createStatusContext(operation) {
         ? statusBroadcaster.createContext(operation)
         : undefined;
 }
+function extractTrackId(reference) {
+    if (!reference) {
+        return undefined;
+    }
+    const normalized = normalizeTrackReference(reference);
+    if (normalized) {
+        return normalized.split(":").pop();
+    }
+    const trimmed = reference.trim();
+    if (!trimmed) {
+        return undefined;
+    }
+    if (/^[A-Za-z0-9]{16,}$/.test(trimmed)) {
+        return trimmed;
+    }
+    return undefined;
+}
+function normalizeTrackReference(reference) {
+    if (!reference) {
+        return undefined;
+    }
+    const trimmed = reference.trim();
+    if (!trimmed) {
+        return undefined;
+    }
+    const uriMatch = trimmed.match(/spotify:track:([A-Za-z0-9]{16,})/i);
+    if (uriMatch?.[1]) {
+        return `spotify:track:${uriMatch[1]}`;
+    }
+    const urlMatch = trimmed.match(/track\/([A-Za-z0-9]{16,})/i);
+    if (urlMatch?.[1]) {
+        return `spotify:track:${urlMatch[1]}`;
+    }
+    return undefined;
+}
+function sanitizeSelectedSongs(raw) {
+    if (!Array.isArray(raw)) {
+        return [];
+    }
+    const selections = [];
+    for (const entry of raw) {
+        if (!entry || typeof entry !== "object") {
+            continue;
+        }
+        const titleRaw = entry.title ?? entry.name;
+        const artistRaw = entry.artist ?? entry.artistName;
+        const uriRaw = entry.uri;
+        const title = typeof titleRaw === "string" ? titleRaw.trim() : "";
+        const artist = typeof artistRaw === "string" ? artistRaw.trim() : "";
+        const normalizedUri = normalizeTrackReference(typeof uriRaw === "string" ? uriRaw : undefined);
+        if (!title) {
+            continue;
+        }
+        selections.push({
+            title,
+            artist,
+            uri: normalizedUri,
+        });
+        if (selections.length >= 120) {
+            break;
+        }
+    }
+    return selections;
+}
+async function collectPlaylistTrackUris(playlistId, initialPlaylist) {
+    const uris = new Set();
+    const addItems = (items) => {
+        items?.forEach((item) => {
+            const track = item.track;
+            const uri = track?.uri;
+            if (uri) {
+                uris.add(uri);
+            }
+        });
+    };
+    let offset = 0;
+    let total = 0;
+    const limit = 100;
+    if (initialPlaylist) {
+        const initialItems = initialPlaylist.tracks?.items ?? [];
+        addItems(initialItems);
+        offset = initialItems.length;
+        total = initialPlaylist.tracks?.total ?? initialItems.length;
+        if (total && offset >= total) {
+            return uris;
+        }
+    }
+    while (true) {
+        const response = await requestQueue.add(() => spotifyApi.getPlaylistTracks(playlistId, {
+            offset,
+            limit,
+        }));
+        const items = response.body?.items ?? [];
+        addItems(items);
+        offset += items.length;
+        total =
+            typeof response.body?.total === "number"
+                ? response.body.total
+                : total;
+        const reachedEnd = !items.length || (typeof total === "number" && offset >= total);
+        if (reachedEnd) {
+            break;
+        }
+        await sleep(120);
+    }
+    return uris;
+}
 playlistController.get("/liked-songs", async (_req, res) => {
     const statusContext = createStatusContext("liked-songs");
     try {
@@ -315,12 +422,91 @@ playlistController.get("/playlist-details", async (req, res) => {
         res.status(500).json({ error: "Failed to load playlist details." });
     }
 });
+playlistController.get("/track-preview", async (req, res) => {
+    const referenceParam = Array.isArray(req.query.reference)
+        ? req.query.reference[0]
+        : req.query.reference;
+    const uriParam = Array.isArray(req.query.uri) ? req.query.uri[0] : req.query.uri;
+    const idParam = Array.isArray(req.query.id) ? req.query.id[0] : req.query.id;
+    const marketParam = Array.isArray(req.query.market) ? req.query.market[0] : req.query.market;
+    const reference = typeof referenceParam === "string" && referenceParam.trim()
+        ? referenceParam.trim()
+        : typeof uriParam === "string" && uriParam.trim()
+            ? uriParam.trim()
+            : typeof idParam === "string" && idParam.trim()
+                ? idParam.trim()
+                : undefined;
+    const trackId = extractTrackId(reference);
+    if (!trackId) {
+        return res.status(400).json({ error: "Track reference is required." });
+    }
+    try {
+        const response = await requestQueue.add(() => spotifyApi.getTrack(trackId, {
+            market: typeof marketParam === "string" && marketParam.trim() ? marketParam.trim() : undefined,
+        }));
+        const track = response.body;
+        if (!track) {
+            return res.status(404).json({ error: "Track not found." });
+        }
+        const previewUrl = track.preview_url ?? null;
+        let reason = null;
+        if (!previewUrl) {
+            const restrictionReason = track.restrictions?.reason;
+            if (restrictionReason === "market") {
+                reason = "market_restriction";
+            }
+            else if (restrictionReason === "product") {
+                reason = "subscription_required";
+            }
+            else if (restrictionReason === "explicit") {
+                reason = "explicit";
+            }
+            else if (track.is_playable === false) {
+                reason = "not_playable";
+            }
+            else {
+                reason = "no_preview";
+            }
+        }
+        const artists = Array.isArray(track.artists)
+            ? track.artists.map((artist) => artist.name).filter(Boolean)
+            : [];
+        res.json({
+            id: track.id,
+            name: track.name,
+            artists,
+            album: track.album?.name ?? null,
+            previewUrl,
+            reason,
+            isPlayable: track.is_playable ?? true,
+            availableMarkets: Array.isArray(track.available_markets) ? track.available_markets : undefined,
+            popularity: track.popularity,
+            durationMs: track.duration_ms,
+            link: track.external_urls?.spotify ?? null,
+        });
+    }
+    catch (error) {
+        const statusCode = error?.statusCode ?? error?.body?.error?.status;
+        const message = formatSpotifyError(error);
+        log(`Track preview error for ${trackId}: ${message}`);
+        if (statusCode === 404) {
+            return res.status(404).json({ error: "Track not found." });
+        }
+        if (statusCode === 401 || statusCode === 403) {
+            await clearTokenFile();
+            return res.status(statusCode).json({ error: message });
+        }
+        res.status(500).json({ error: message || "Failed to look up track preview." });
+    }
+});
 playlistController.post("/create-custom-playlist", async (req, res) => {
     const statusContext = createStatusContext("custom");
     const prompt = typeof req.body?.prompt === "string" ? req.body.prompt.trim() : "";
     if (!prompt) {
         return res.status(400).json({ error: "Prompt is required" });
     }
+    const selectedSongsInput = sanitizeSelectedSongs(req.body?.songs);
+    const hasSelectedSongs = selectedSongsInput.length > 0;
     const playlistReference = typeof req.body?.playlistId === "string" ? req.body.playlistId.trim() : "";
     const targetPlaylistId = extractSpotifyPlaylistId(playlistReference);
     if (playlistReference && !targetPlaylistId) {
@@ -365,9 +551,33 @@ playlistController.post("/create-custom-playlist", async (req, res) => {
         }
         const customPlaylist = await createCustomPlaylist(prompt, modelName);
         const sanitized = sanitizePlaylist(customPlaylist);
+        if (hasSelectedSongs) {
+            const sanitizedSelections = selectedSongsInput.map((song) => ({
+                title: song.title,
+                artist: song.artist || "",
+            }));
+            if (!sanitizedSelections.length) {
+                return res.status(400).json({ error: "No valid songs were provided." });
+            }
+            sanitized.songs = sanitizedSelections;
+        }
         broadcastPlaylistSongs(sanitized, statusContext);
-        const { uris, unresolved } = await findTrackUris(sanitized.songs, sanitized.name);
-        let trackUris = [...uris];
+        let trackUris = [];
+        let unresolved = [];
+        if (hasSelectedSongs && selectedSongsInput.every((song) => Boolean(song.uri))) {
+            trackUris = selectedSongsInput.map((song) => song.uri);
+        }
+        else {
+            const lookup = await findTrackUris(sanitized.songs, sanitized.name);
+            trackUris = [...lookup.uris];
+            unresolved = lookup.unresolved;
+            if (hasSelectedSongs) {
+                trackUris = trackUris.map((uri, index) => {
+                    const provided = selectedSongsInput[index]?.uri;
+                    return provided ?? uri;
+                });
+            }
+        }
         if (unresolved.length) {
             if (statusContext) {
                 statusBroadcaster.statusMessage(statusContext, {
@@ -398,7 +608,11 @@ playlistController.post("/create-custom-playlist", async (req, res) => {
         const uniqueTrackUris = Array.from(new Set(validTrackUris));
         let responsePayload;
         if (targetPlaylistId && existingPlaylist) {
-            await requestQueue.add(() => spotifyApi.addTracksToPlaylist(targetPlaylistId, uniqueTrackUris));
+            const existingTrackUris = await collectPlaylistTrackUris(targetPlaylistId, existingPlaylist);
+            const tracksToAdd = uniqueTrackUris.filter((uri) => !existingTrackUris.has(uri));
+            if (tracksToAdd.length) {
+                await requestQueue.add(() => spotifyApi.addTracksToPlaylist(targetPlaylistId, tracksToAdd));
+            }
             const description = sanitized.description
                 ? sanitized.description
                 : existingPlaylist?.description || sanitized.name;

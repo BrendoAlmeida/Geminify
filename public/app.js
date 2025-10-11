@@ -84,8 +84,17 @@ const chatRefreshPlaylistsButton = document.getElementById("chatRefreshPlaylists
 const chatPlaylistHint = document.getElementById("chatPlaylistHint");
 const chatCreationStatus = document.getElementById("chatCreationStatus");
 const themeTagList = document.getElementById("themeTagList");
-const songTagList = document.getElementById("songTagList");
+const songSuggestionList = document.getElementById("songTagList");
 const chatCreatePlaylistButton = document.getElementById("chatCreatePlaylistButton");
+const chatUploadToggle = document.getElementById("chatUploadToggle");
+const chatUploadDropdown = document.getElementById("chatUploadDropdown");
+const sendLikedSongsButton = document.getElementById("sendLikedSongs");
+const chatOpenPlaylistModalButton = document.getElementById("chatOpenPlaylistModal");
+const chatPlaylistModal = document.getElementById("chatPlaylistModal");
+const chatPlaylistModalCloseButton = document.getElementById("chatPlaylistModalClose");
+const chatPlaylistModalCancelButton = document.getElementById("chatPlaylistModalCancel");
+const chatSendPlaylistContextButton = document.getElementById("chatSendPlaylistContext");
+const chatPlaylistModalBackdrop = chatPlaylistModal?.querySelector("[data-modal-close]");
 const languageSwitcher = document.querySelector(".language-switcher");
 const languageButtons = Array.from(document.querySelectorAll(".language-switcher__option"));
 const htmlElement = document.documentElement;
@@ -103,6 +112,78 @@ const mixState = {
   statusType: "",
   pending: false,
 };
+
+const songSuggestionPreviewState = {
+  activeId: null,
+  audio: null,
+  button: null,
+  card: null,
+  item: null,
+  isPlaying: false,
+  suggestion: null,
+  miniPlayer: null,
+};
+
+const songPreviewLookupState = {
+  inFlight: new Map(),
+  completed: new Set(),
+};
+
+function registerSongSuggestionDebugTools() {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const listSongSuggestions = () =>
+    chatState.songSuggestions.map((song, index) => ({
+      index,
+      id: song.id,
+      title: song.title,
+      artist: song.artist,
+      previewUrl: song.previewUrl ?? null,
+      uri: song.uri ?? null,
+      spotifyUrl: song.spotifyUrl ?? null,
+      reason: song.previewUnavailableReason ?? null,
+    }));
+
+  const checkSongPreview = async (identifier) => {
+    const suggestion =
+      typeof identifier === "number"
+        ? chatState.songSuggestions[identifier]
+        : chatState.songSuggestions.find(
+            (song) =>
+              song?.id === identifier ||
+              song?.uri === identifier ||
+              song?.spotifyUrl === identifier ||
+              song?.title === identifier
+          );
+
+    if (!suggestion) {
+      throw new Error("Song suggestion not found. Pass an index, id, uri, or title.");
+    }
+
+    const reference = getSongPreviewReference(suggestion);
+    if (!reference) {
+      throw new Error("Suggestion does not contain a Spotify reference to inspect.");
+    }
+
+    const response = await fetch(`/track-preview?reference=${encodeURIComponent(reference)}`);
+    if (!response.ok) {
+      throw new Error(`Preview lookup failed with status ${response.status}`);
+    }
+    return response.json();
+  };
+
+  const debugInterface = Object.freeze({
+    listSongSuggestions,
+    checkSongPreview,
+    songPreviewLookupState,
+  });
+
+    window.geminifyDebug = Object.assign({}, window.geminifyDebug || {}, {
+    songs: debugInterface,
+  });
+}
 
 const LOCALE_STORAGE_KEY = "claudify:locale";
 const DEFAULT_LOCALE = "en";
@@ -128,7 +209,7 @@ const TRANSLATIONS = {
       },
       chat: {
         title: "Idea lounge",
-        hint: "Chat with the model and capture tags",
+        hint: "Chat with the Geminify and capture tags",
       },
     },
     hero: {
@@ -236,8 +317,62 @@ const TRANSLATIONS = {
         themeDescription: "Collect quick keywords for vibe, genre, or references.",
         emptyTheme: "No tags yet. Start chatting with the model!",
         songTitle: "Suggested songs",
-        songDescription: "Quick examples to jump-start your playlist.",
+  songDescription: "Preview songs and remove the ones you don't want to keep.",
         emptySong: "When suggestions arrive, they’ll show up here.",
+      },
+      actions: {
+        toggleUploads: "Send context options",
+        sendLikedSongs: "Send liked songs",
+        updatePlaylist: "Update playlist",
+      },
+      liked: {
+        sending: "Sending to Geminify…",
+        sentSummary: "Sent {total} liked songs. Here are a few highlights:",
+        sentSummaryNoHighlights: "Sent {total} liked songs.",
+        more: "… +{count} more",
+        already: "Liked songs already uploaded.",
+      },
+      playlistModal: {
+        title: "Update playlist with context",
+        description: "Select an existing playlist to share its songs before chatting or creating updates.",
+        send: "Send playlist",
+        cancel: "Cancel",
+        close: "Close",
+        missingSelection: "Select a playlist before sending.",
+        sending: "Sending playlist context…",
+        ready: "Playlist context activated! Ask for updates or new angles.",
+        sentSummary: "Loaded playlist “{name}” with {total} tracks. Here are a few highlights:",
+        sentSummaryNoHighlights: "Loaded playlist “{name}” with {total} tracks.",
+        more: "… +{count} more",
+        already: "That playlist is already active in this chat.",
+      },
+      songs: {
+        preview: "Preview",
+        stopPreview: "Stop",
+        remove: "Remove",
+        removeAria: "Remove {title}",
+        select: "Select song",
+        selectBeforeCreate: "Keep at least one suggested song before creating a playlist.",
+  unknownSong: "Unknown song",
+        playPreview: "Play preview",
+        pausePreview: "Pause preview",
+        closePlayer: "Close mini player",
+        playerNowPlaying: "Now playing",
+        noPreview: "No preview available for this song.",
+        previewUnavailableReason: {
+          no_preview: "Spotify didn't provide a preview for this song.",
+          market_restriction: "Preview restricted in your region.",
+          subscription_required: "Preview requires Spotify Premium or a supported device.",
+          explicit: "Preview blocked because the track is marked explicit.",
+          not_playable: "Spotify reports this track isn't currently playable.",
+          error: "We couldn't check the preview right now.",
+          unknown: "Preview unavailable for an unknown reason.",
+        },
+        prompt: {
+          baseSelected:
+            "Create a cohesive Spotify playlist using only the songs the user kept from the suggestions. Provide a captivating name and a short description that reflects the chat context and these tracks.",
+          keepSelection: "Do not add or remove songs. Feel free to suggest an order that enhances flow.",
+        },
       },
     },
     footer: {
@@ -326,7 +461,7 @@ const TRANSLATIONS = {
       "Reply received!": "Reply received!",
       "Conversation refreshed, no new tags this time.": "Conversation refreshed, no new tags this time.",
       "Tags updated!": "Tags updated!",
-      "We couldn’t chat with the model right now.": "We couldn’t chat with the model right now.",
+      "We couldn’t chat with the Geminify right now.": "We couldn’t chat with the Geminify right now.",
       "Chat with Gemini or capture some tags before creating a playlist.": "Chat with Gemini or capture some tags before creating a playlist.",
       "We need more chat context or tags to craft a playlist.": "We need more chat context or tags to craft a playlist.",
       "Creating…": "Creating…",
@@ -390,7 +525,7 @@ const TRANSLATIONS = {
       },
       chat: {
         title: "Sala de ideias",
-        hint: "Converse com o modelo e capture tags",
+        hint: "Converse com o Geminify e capture tags",
       },
     },
     hero: {
@@ -480,14 +615,14 @@ const TRANSLATIONS = {
         refresh: "Atualizar",
       },
       panel: {
-        title: "Converse com o modelo",
+        title: "Converse com o Geminify",
         description:
           "Compartilhe o clima, referências ou histórias que quer transformar em música. O Gemini responde com ideias e tags opcionais para turbinar sua playlist.",
       },
       initialMessage:
         "Oi! Conte o clima, contexto ou inspiração que você quer explorar e eu trago ideias, tags e exemplos de músicas.",
       form: {
-        label: "Mensagem para o modelo",
+        label: "Mensagem para o Geminify",
         placeholder: "ex.: Quero uma playlist aconchegante com lo-fi de jogos indie",
         send: "Enviar",
         create: "Criar playlist a partir do chat",
@@ -496,10 +631,64 @@ const TRANSLATIONS = {
       tags: {
         themeTitle: "Climas e narrativas",
         themeDescription: "Colete palavras-chave rápidas de clima, gênero ou referências.",
-        emptyTheme: "Ainda não há tags. Comece a conversar com o modelo!",
+        emptyTheme: "Ainda não há tags. Comece a conversar com o Geminify!",
         songTitle: "Músicas sugeridas",
-        songDescription: "Exemplos rápidos para acelerar sua playlist.",
+        songDescription: "Ouça as prévias e remova as faixas que não quiser usar.",
         emptySong: "Quando houver sugestões, elas aparecem aqui.",
+      },
+      actions: {
+        toggleUploads: "Enviar opções de contexto",
+        sendLikedSongs: "Enviar músicas curtidas",
+        updatePlaylist: "Atualizar playlist",
+      },
+      liked: {
+        sending: "Enviando para a Geminify…",
+        sentSummary: "Enviei {total} músicas curtidas. Aqui vão alguns destaques:",
+        sentSummaryNoHighlights: "Enviei {total} músicas curtidas.",
+        more: "… +{count} a mais",
+        already: "As músicas curtidas já foram enviadas.",
+      },
+      playlistModal: {
+        title: "Atualizar playlist com contexto",
+        description: "Escolha uma playlist existente para enviar o contexto antes de conversar ou atualizar.",
+        send: "Enviar playlist",
+        cancel: "Cancelar",
+        close: "Fechar",
+        missingSelection: "Selecione uma playlist antes de enviar.",
+        sending: "Enviando contexto da playlist…",
+        ready: "Contexto da playlist ativado! Peça atualizações ou novos rumos.",
+        sentSummary: "Carreguei a playlist “{name}” com {total} faixas. Aqui vão alguns destaques:",
+        sentSummaryNoHighlights: "Carreguei a playlist “{name}” com {total} faixas.",
+        more: "… +{count} a mais",
+        already: "Essa playlist já está ativa neste chat.",
+      },
+      songs: {
+        preview: "Ouvir prévia",
+        stopPreview: "Parar",
+        remove: "Remover",
+        removeAria: "Remover {title}",
+        select: "Selecionar música",
+        selectBeforeCreate: "Mantenha ao menos uma música sugerida antes de criar a playlist.",
+  unknownSong: "Música desconhecida",
+        playPreview: "Tocar prévia",
+        pausePreview: "Pausar prévia",
+        closePlayer: "Fechar mini player",
+        playerNowPlaying: "Tocando agora",
+        noPreview: "Não há prévia disponível para esta música.",
+        previewUnavailableReason: {
+          no_preview: "O Spotify não forneceu uma prévia para esta faixa.",
+          market_restriction: "A prévia está restringida na sua região.",
+          subscription_required: "Essa prévia exige o Spotify Premium ou um dispositivo compatível.",
+          explicit: "A prévia foi bloqueada porque a faixa é marcada como explícita.",
+          not_playable: "O Spotify informou que esta faixa não está disponível no momento.",
+          error: "Não conseguimos verificar a prévia agora.",
+          unknown: "A prévia está indisponível por um motivo desconhecido.",
+        },
+        prompt: {
+          baseSelected:
+            "Crie uma playlist coesa no Spotify usando apenas as músicas que o usuário manteve entre as sugestões. Traga um nome criativo e uma breve descrição que reflitam o chat e essas faixas.",
+          keepSelection: "Não adicione nem remova músicas. Você pode sugerir uma ordem que melhore o fluxo.",
+        },
       },
     },
     footer: {
@@ -583,12 +772,12 @@ const TRANSLATIONS = {
       "Conversation notes:\n{conversation}": "Notas da conversa:\n{conversation}",
       "Write a message before sending.": "Escreva uma mensagem antes de enviar.",
       "Hold on a moment—still loading playlist details.": "Espere um instante — ainda carregando os detalhes da playlist.",
-      "Checking with Gemini…": "Consultando o Gemini…",
+      "Checking with Geminify…": "Consultando o Geminify…",
       "Sending…": "Enviando…",
       "Reply received!": "Resposta recebida!",
       "Conversation refreshed, no new tags this time.": "Conversa atualizada, sem novas tags desta vez.",
       "Tags updated!": "Tags atualizadas!",
-      "We couldn’t chat with the model right now.": "Não foi possível conversar com o modelo agora.",
+      "We couldn’t chat with the Geminify right now.": "Não foi possível conversar com o Geminify agora.",
       "Chat with Gemini or capture some tags before creating a playlist.": "Converse com o Gemini ou capture algumas tags antes de criar uma playlist.",
       "We need more chat context or tags to craft a playlist.": "Precisamos de mais contexto do chat ou tags para montar uma playlist.",
       "Creating…": "Criando…",
@@ -783,6 +972,22 @@ function refreshLocaleDependentCopy() {
     resetMixResultsToEmpty();
   }
   refreshMixStatusLocale();
+
+  if (songSuggestionPreviewState.miniPlayer) {
+    const miniPlayer = songSuggestionPreviewState.miniPlayer;
+    const nowPlayingLabel = t("chat.songs.playerNowPlaying", {}, { fallback: "Now playing" });
+    miniPlayer.label.textContent = nowPlayingLabel;
+    miniPlayer.closeButton.setAttribute(
+      "aria-label",
+      t("chat.songs.closePlayer", {}, { fallback: "Close mini player" })
+    );
+    const titleText = songSuggestionPreviewState.suggestion?.title;
+    miniPlayer.container.setAttribute(
+      "aria-label",
+      titleText ? `${nowPlayingLabel}: ${titleText}` : nowPlayingLabel
+    );
+    updateMiniPlayerState();
+  }
 }
 
 function setLocale(locale, { persist = true } = {}) {
@@ -850,6 +1055,7 @@ function registerLocaleSwitcher() {
 
 registerLocaleSwitcher();
 initializeLocale();
+registerSongSuggestionDebugTools();
 
 const MODEL_STORAGE_KEY = "claudify:selectedGeminiModel";
 let availableModels = [];
@@ -864,6 +1070,26 @@ let modelsLoading = false;
 let playlistsLoading = false;
 let cachedUserPlaylists = [];
 let chatPlaylistLoading = false;
+let chatBlocked = false;
+let chatPlaylistModalLastFocus = null;
+
+function blockChat() {
+  chatBlocked = true;
+  if (chatInput) chatInput.disabled = true;
+  if (chatSendButton) chatSendButton.disabled = true;
+  if (chatCreatePlaylistButton) chatCreatePlaylistButton.disabled = true;
+  if (chatRefreshPlaylistsButton) chatRefreshPlaylistsButton.disabled = true;
+  chatUploadToggle?.setAttribute("disabled", "true");
+}
+
+function unblockChat() {
+  chatBlocked = false;
+  if (chatInput) chatInput.disabled = false;
+  if (chatSendButton) chatSendButton.disabled = false;
+  if (chatCreatePlaylistButton) chatCreatePlaylistButton.disabled = false;
+  if (chatRefreshPlaylistsButton) chatRefreshPlaylistsButton.disabled = false;
+  if (chatUploadToggle) chatUploadToggle.removeAttribute("disabled");
+}
 
 function getInitialAssistantMessage() {
   return t("chat.initialMessage");
@@ -876,11 +1102,70 @@ let initialAssistantMessage = getInitialAssistantMessage();
 const chatState = {
   messages: [{ role: "assistant", content: initialAssistantMessage }],
   themeTags: [],
-  songTags: [],
+  songSuggestions: [],
   playlistContext: null,
   didSendPlaylistContext: false,
+  likedSongs: [],
+  playlistSummaryPostedId: null,
   initialAssistantMessage,
 };
+
+function updateLikedSongsButtonState() {
+  if (!sendLikedSongsButton) return;
+  const hasLikedSongs = chatState.likedSongs.length > 0;
+  sendLikedSongsButton.disabled = hasLikedSongs;
+  sendLikedSongsButton.setAttribute("aria-disabled", String(hasLikedSongs));
+}
+
+function isChatPlaylistModalOpen() {
+  return Boolean(chatPlaylistModal && chatPlaylistModal.hidden === false);
+}
+
+function openChatPlaylistModal() {
+  if (!chatPlaylistModal) return;
+  if (isChatPlaylistModalOpen()) return;
+
+  chatUploadToggle?.setAttribute("aria-expanded", "false");
+  if (chatUploadDropdown) {
+    chatUploadDropdown.hidden = true;
+  }
+
+  chatPlaylistModalLastFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  chatPlaylistModal.hidden = false;
+  chatPlaylistModal.setAttribute("aria-hidden", "false");
+  document.body.classList.add("modal-open");
+
+  const dialog = chatPlaylistModal.querySelector(".modal__dialog");
+  if (dialog instanceof HTMLElement) {
+    if (!dialog.hasAttribute("tabindex")) {
+      dialog.setAttribute("tabindex", "-1");
+    }
+    dialog.focus({ preventScroll: true });
+  }
+
+  if (!playlistsLoaded && !playlistsLoading) {
+    loadUserPlaylists({ trigger: "modal", source: "chat" }).catch((error) => {
+      console.error("Failed to load playlists for modal", error);
+    });
+  } else {
+    updateChatPlaylistHint();
+  }
+}
+
+function closeChatPlaylistModal(options = {}) {
+  const { restoreFocus = true } = options;
+  if (!chatPlaylistModal || chatPlaylistModal.hidden) return;
+
+  chatPlaylistModal.hidden = true;
+  chatPlaylistModal.setAttribute("aria-hidden", "true");
+  document.body.classList.remove("modal-open");
+
+  if (restoreFocus && chatPlaylistModalLastFocus && typeof chatPlaylistModalLastFocus.focus === "function") {
+    chatPlaylistModalLastFocus.focus();
+  }
+
+  chatPlaylistModalLastFocus = null;
+}
 
 const tickerState = {
   mode: "idle",
@@ -1246,6 +1531,27 @@ function handleLikedComplete(event) {
   }
 }
 
+function onLikedCompleteClear(event) {
+  const data = parseEventData(event);
+  if (!isCurrentRequest("liked", data.requestId || null)) return;
+
+  const pending = chatLog?.querySelector('.chat-message--user.chat-message--pending');
+  if (pending) {
+    pending.classList.remove('chat-message--pending');
+    const body = pending.querySelector('.chat-message__body');
+    if (body) {
+      const note = document.createElement('div');
+      note.style.marginTop = '8px';
+      note.style.fontSize = '0.85rem';
+      note.style.color = 'var(--text-muted)';
+      const total = typeof data.total === 'number' ? data.total : '';
+      note.textContent = t('Liked songs loaded ({total})', { total }, { fallback: 'Liked songs sent' });
+      body.append(document.createElement('br'));
+      body.append(note);
+    }
+  }
+}
+
 function handleGenreStart(event) {
   const data = parseEventData(event);
   const label = data.label
@@ -1431,6 +1737,7 @@ function initStatusStream() {
   statusSource.addEventListener("liked-start", handleLikedStart);
   statusSource.addEventListener("liked-song", handleLikedSong);
   statusSource.addEventListener("liked-complete", handleLikedComplete);
+  statusSource.addEventListener("liked-complete", onLikedCompleteClear);
   statusSource.addEventListener("genre-start", handleGenreStart);
   statusSource.addEventListener("genre-progress", handleGenreProgress);
   statusSource.addEventListener("genre-complete", handleGenreComplete);
@@ -1831,10 +2138,812 @@ function renderTagGroup(container, tags, group, emptyMessageKey) {
   });
 }
 
+function updatePreviewButtonDisplay(button, isPlaying) {
+  if (!(button instanceof HTMLElement)) {
+    return;
+  }
+
+  const usesText = button.dataset.usesText === "true";
+  button.classList.toggle("is-playing", isPlaying);
+
+  if (usesText) {
+    button.textContent = isPlaying
+      ? t("chat.songs.stopPreview", {}, { fallback: "Stop" })
+      : t("chat.songs.preview", {}, { fallback: "Preview" });
+  } else {
+    button.setAttribute(
+      "aria-label",
+      isPlaying
+        ? t("chat.songs.pausePreview", {}, { fallback: "Pause preview" })
+        : t("chat.songs.playPreview", {}, { fallback: "Play preview" })
+    );
+  }
+}
+
+function updateSongPreviewButtons(itemElement, isPlaying) {
+  if (!(itemElement instanceof HTMLElement)) {
+    return;
+  }
+
+  const buttons = itemElement.querySelectorAll('[data-action="preview"]');
+  buttons.forEach((button) => {
+    if (button instanceof HTMLElement) {
+      updatePreviewButtonDisplay(button, isPlaying);
+    }
+  });
+}
+
+function getSongPreviewReference(suggestion) {
+  if (!suggestion) {
+    return null;
+  }
+
+  if (typeof suggestion.uri === "string" && suggestion.uri.trim()) {
+    return suggestion.uri.trim();
+  }
+
+  if (typeof suggestion.spotifyUrl === "string" && suggestion.spotifyUrl.trim()) {
+    return suggestion.spotifyUrl.trim();
+  }
+
+  if (typeof suggestion.id === "string" && suggestion.id.startsWith("spotify:track:")) {
+    return suggestion.id;
+  }
+
+  return null;
+}
+
+function formatPreviewUnavailableReason(reasonKey) {
+  if (typeof reasonKey !== "string" || !reasonKey) {
+    return t("chat.songs.noPreview", {}, { fallback: "No preview available for this song." });
+  }
+
+  return t(`chat.songs.previewUnavailableReason.${reasonKey}`, {}, {
+    fallback: t("chat.songs.noPreview", {}, { fallback: "No preview available for this song." }),
+  });
+}
+
+function ensurePreviewForSuggestion(suggestion) {
+  if (!suggestion) {
+    return;
+  }
+
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  if (typeof suggestion.previewUrl === "string" && suggestion.previewUrl) {
+    return;
+  }
+
+  const reference = getSongPreviewReference(suggestion);
+  if (!reference) {
+    return;
+  }
+
+  if (songPreviewLookupState.inFlight.has(reference) || songPreviewLookupState.completed.has(reference)) {
+    return;
+  }
+
+  const request = fetch(`/track-preview?reference=${encodeURIComponent(reference)}`)
+    .then((response) => {
+      if (!response.ok) {
+        throw new Error(`Track preview lookup failed with status ${response.status}`);
+      }
+      return response.json();
+    })
+    .then((data) => {
+      if (!data || typeof data !== "object") {
+        return;
+      }
+
+      const previewUrl = typeof data.previewUrl === "string" ? data.previewUrl : undefined;
+      const reason = typeof data.reason === "string" ? data.reason : undefined;
+
+      if (previewUrl) {
+        const prevUrl = suggestion.previewUrl;
+        suggestion.previewUrl = previewUrl;
+        suggestion.previewUnavailableReason = undefined;
+        songPreviewLookupState.completed.add(reference);
+
+        if (prevUrl !== previewUrl) {
+          setTimeout(() => {
+            renderSongSuggestions();
+            updateMiniPlayerState();
+          }, 0);
+        }
+      } else if (reason) {
+        suggestion.previewUnavailableReason = reason;
+        songPreviewLookupState.completed.add(reference);
+      } else {
+        suggestion.previewUnavailableReason = suggestion.previewUnavailableReason || "unknown";
+        songPreviewLookupState.completed.add(reference);
+      }
+    })
+    .catch((error) => {
+      console.warn("Preview lookup failed", error);
+      suggestion.previewUnavailableReason = suggestion.previewUnavailableReason || "error";
+    })
+    .finally(() => {
+      songPreviewLookupState.inFlight.delete(reference);
+    });
+
+  songPreviewLookupState.inFlight.set(reference, request);
+}
+
+function ensureSongMiniPlayer() {
+  if (songSuggestionPreviewState.miniPlayer) {
+    return songSuggestionPreviewState.miniPlayer;
+  }
+
+  const container = document.createElement("aside");
+  container.className = "mini-player";
+  container.hidden = true;
+  container.setAttribute("aria-live", "polite");
+  container.setAttribute("role", "complementary");
+  container.setAttribute(
+    "aria-label",
+    t("chat.songs.playerNowPlaying", {}, { fallback: "Now playing" })
+  );
+
+  const content = document.createElement("div");
+  content.className = "mini-player__content";
+
+  const art = document.createElement("div");
+  art.className = "mini-player__art";
+  art.setAttribute("aria-hidden", "true");
+
+  const info = document.createElement("div");
+  info.className = "mini-player__info";
+
+  const label = document.createElement("span");
+  label.className = "mini-player__label";
+  label.textContent = t("chat.songs.playerNowPlaying", {}, { fallback: "Now playing" });
+
+  const title = document.createElement("p");
+  title.className = "mini-player__title";
+  title.textContent = t("chat.songs.preview", {}, { fallback: "Preview" });
+
+  const artist = document.createElement("p");
+  artist.className = "mini-player__artist";
+  artist.textContent = "";
+
+  info.append(label, title, artist);
+
+  const controls = document.createElement("div");
+  controls.className = "mini-player__controls";
+
+  const playButton = document.createElement("button");
+  playButton.type = "button";
+  playButton.className = "mini-player__button mini-player__play";
+  playButton.setAttribute(
+    "aria-label",
+    t("chat.songs.playPreview", {}, { fallback: "Play preview" })
+  );
+  playButton.textContent = "▶";
+
+  const closeButton = document.createElement("button");
+  closeButton.type = "button";
+  closeButton.className = "mini-player__button mini-player__close";
+  closeButton.setAttribute(
+    "aria-label",
+    t("chat.songs.closePlayer", {}, { fallback: "Close mini player" })
+  );
+  closeButton.textContent = "✕";
+
+  controls.append(playButton, closeButton);
+
+  const progress = document.createElement("div");
+  progress.className = "mini-player__progress";
+  const progressFill = document.createElement("div");
+  progressFill.className = "mini-player__progress-fill";
+  progress.append(progressFill);
+
+  content.append(art, info, controls);
+  container.append(content, progress);
+
+  const audio = document.createElement("audio");
+  audio.preload = "none";
+  audio.hidden = true;
+  container.append(audio);
+
+  document.body.append(container);
+
+  const miniPlayer = {
+    container,
+    art,
+    label,
+    title,
+    artist,
+    playButton,
+    closeButton,
+    progress,
+    progressFill,
+  };
+
+  songSuggestionPreviewState.audio = audio;
+  songSuggestionPreviewState.miniPlayer = miniPlayer;
+
+  playButton.addEventListener("click", () => {
+    if (!songSuggestionPreviewState.audio) {
+      return;
+    }
+    if (!songSuggestionPreviewState.activeId) {
+      return;
+    }
+    if (songSuggestionPreviewState.audio.paused) {
+      songSuggestionPreviewState.audio
+        .play()
+        .catch(() => undefined);
+    } else {
+      songSuggestionPreviewState.audio.pause();
+    }
+  });
+
+  closeButton.addEventListener("click", () => {
+    stopActiveSongPreview({ hidePlayer: true });
+  });
+
+  audio.addEventListener("play", () => {
+    songSuggestionPreviewState.isPlaying = true;
+    updateMiniPlayerState();
+  });
+
+  audio.addEventListener("pause", () => {
+    songSuggestionPreviewState.isPlaying = false;
+    updateMiniPlayerState();
+  });
+
+  audio.addEventListener("ended", () => {
+    songSuggestionPreviewState.isPlaying = false;
+    audio.currentTime = 0;
+    updateMiniPlayerState();
+  });
+
+  audio.addEventListener("timeupdate", () => {
+    if (!songSuggestionPreviewState.miniPlayer) return;
+    const duration = audio.duration;
+    const current = audio.currentTime;
+    const percent = duration ? Math.min((current / duration) * 100, 100) : 0;
+    songSuggestionPreviewState.miniPlayer.progressFill.style.width = `${percent}%`;
+  });
+
+  return miniPlayer;
+}
+
+function updateMiniPlayerState() {
+  const { miniPlayer, audio, card, item } = songSuggestionPreviewState;
+  if (!miniPlayer || !audio) {
+    return;
+  }
+
+  const { playButton, container } = miniPlayer;
+  if (songSuggestionPreviewState.activeId) {
+    container.hidden = false;
+    container.classList.add("is-visible");
+  } else {
+    container.classList.remove("is-visible");
+    container.hidden = true;
+  }
+
+  const isPlaying = !audio.paused && !audio.ended;
+  playButton.classList.toggle("is-playing", isPlaying);
+  playButton.setAttribute(
+    "aria-label",
+    isPlaying
+      ? t("chat.songs.pausePreview", {}, { fallback: "Pause preview" })
+      : t("chat.songs.playPreview", {}, { fallback: "Play preview" })
+  );
+  playButton.textContent = isPlaying ? "⏸" : "▶";
+
+  if (card) {
+    card.classList.toggle("is-playing", isPlaying);
+  }
+  if (item) {
+    item.classList.toggle("is-playing", isPlaying);
+  }
+
+  if (item) {
+    updateSongPreviewButtons(item, isPlaying);
+  }
+
+  if (!isPlaying && audio.currentTime === 0) {
+    miniPlayer.progressFill.style.width = "0%";
+  }
+}
+
+function normalizeSongSuggestionId(baseTitle, baseArtist, fallbackSeed = "") {
+  const titleKey = (baseTitle || "").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const artistKey = (baseArtist || "").toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  const combined = `${titleKey || "song"}-${artistKey || "artist"}-${fallbackSeed}`.replace(/-+/g, "-").replace(/^-|-$/g, "");
+  return combined || `song-${Date.now()}`;
+}
+
+function normalizeIncomingSongSuggestion(raw, index = 0) {
+  if (!raw) {
+    return null;
+  }
+
+  if (typeof raw === "string") {
+    const separatorMatch = raw.match(/\s[–—-]\s/);
+    let candidateTitle = raw.trim();
+    let candidateArtist = "";
+    if (separatorMatch) {
+      const separator = separatorMatch[0];
+      const index = raw.indexOf(separator);
+      candidateTitle = raw.slice(0, index).trim();
+      candidateArtist = raw.slice(index + separator.length).trim();
+    }
+    const id = normalizeSongSuggestionId(candidateTitle, candidateArtist, index.toString());
+    return {
+      id,
+      title: candidateTitle,
+      artist: candidateArtist,
+      album: undefined,
+      previewUrl: null,
+      uri: null,
+      spotifyUrl: undefined,
+      imageUrl: undefined,
+    };
+  }
+
+  if (typeof raw !== "object") {
+    return null;
+  }
+
+  const title = typeof raw.title === "string" ? raw.title.trim() : typeof raw.name === "string" ? raw.name.trim() : "";
+  const artist = typeof raw.artist === "string" ? raw.artist.trim() : "";
+  if (!title) {
+    return null;
+  }
+
+  const idFromPayload =
+    typeof raw.id === "string" && raw.id.trim()
+      ? raw.id.trim()
+      : typeof raw.uri === "string" && raw.uri.trim()
+      ? raw.uri.trim()
+      : normalizeSongSuggestionId(title, artist, index.toString());
+
+  return {
+    id: idFromPayload,
+    title,
+    artist,
+    album: typeof raw.album === "string" ? raw.album.trim() : undefined,
+    previewUrl:
+      typeof raw.previewUrl === "string"
+        ? raw.previewUrl
+        : raw.previewUrl === null
+        ? null
+        : undefined,
+    uri: typeof raw.uri === "string" ? raw.uri : null,
+    spotifyUrl:
+      typeof raw.spotifyUrl === "string"
+        ? raw.spotifyUrl
+        : typeof raw.url === "string"
+        ? raw.url
+        : undefined,
+    imageUrl:
+      typeof raw.imageUrl === "string"
+        ? raw.imageUrl
+        : Array.isArray(raw.images) && raw.images[0]
+        ? raw.images[0]
+        : undefined,
+  };
+}
+
+function mergeSongSuggestions(current, incoming) {
+  if (!Array.isArray(incoming) || !incoming.length) {
+    return current.slice();
+  }
+
+  const merged = current.slice();
+  const lookup = new Map();
+  merged.forEach((item) => {
+    if (item?.id) {
+      lookup.set(item.id, item);
+    }
+  });
+
+  incoming.forEach((entry, index) => {
+    const normalized = normalizeIncomingSongSuggestion(entry, index);
+    if (!normalized) {
+      return;
+    }
+    const existing = normalized.id ? lookup.get(normalized.id) : undefined;
+    if (existing) {
+      existing.title = normalized.title || existing.title;
+      existing.artist = normalized.artist || existing.artist;
+      existing.album = normalized.album ?? existing.album;
+      if (normalized.previewUrl !== undefined) {
+        existing.previewUrl = normalized.previewUrl;
+      }
+      if (normalized.uri) {
+        existing.uri = normalized.uri;
+      }
+      if (normalized.spotifyUrl) {
+        existing.spotifyUrl = normalized.spotifyUrl;
+      }
+      if (normalized.imageUrl) {
+        existing.imageUrl = normalized.imageUrl;
+      }
+    } else {
+      merged.push({
+        ...normalized,
+      });
+      lookup.set(normalized.id, merged[merged.length - 1]);
+    }
+  });
+
+  return merged;
+}
+
+function getActiveSongSuggestions() {
+  return [...chatState.songSuggestions];
+}
+
+function stopActiveSongPreview(options = {}) {
+  const { hidePlayer = false } = options;
+  const { audio, miniPlayer, button, card, item } = songSuggestionPreviewState;
+
+  if (audio) {
+    audio.pause();
+    audio.currentTime = 0;
+  }
+
+  if (card) {
+    card.classList.remove("is-playing");
+  }
+  if (item) {
+    item.classList.remove("is-playing");
+    updateSongPreviewButtons(item, false);
+  } else if (button) {
+    updatePreviewButtonDisplay(button, false);
+  }
+
+  if (miniPlayer) {
+    miniPlayer.progressFill.style.width = "0%";
+    if (hidePlayer) {
+      miniPlayer.container.classList.remove("is-visible");
+      miniPlayer.container.hidden = true;
+    }
+  }
+
+  songSuggestionPreviewState.activeId = null;
+  songSuggestionPreviewState.button = null;
+  songSuggestionPreviewState.card = null;
+  songSuggestionPreviewState.item = null;
+  songSuggestionPreviewState.suggestion = null;
+  songSuggestionPreviewState.isPlaying = false;
+  updateMiniPlayerState();
+}
+
+function setMiniPlayerContent(suggestion) {
+  const miniPlayer = ensureSongMiniPlayer();
+
+  miniPlayer.title.textContent = suggestion.title || t("chat.songs.unknownSong", {}, { fallback: "Unknown song" });
+  miniPlayer.artist.textContent = suggestion.artist || t("Unknown artist", {}, { fallback: "Unknown artist" });
+
+  const nowPlayingLabel = t("chat.songs.playerNowPlaying", {}, { fallback: "Now playing" });
+  miniPlayer.label.textContent = nowPlayingLabel;
+  miniPlayer.container.setAttribute(
+    "aria-label",
+    suggestion.title ? `${nowPlayingLabel}: ${suggestion.title}` : nowPlayingLabel
+  );
+
+  if (suggestion.imageUrl) {
+    const safeUrl = suggestion.imageUrl.replace(/"/g, '\\"');
+    miniPlayer.art.style.setProperty("--mini-player-art", `url("${safeUrl}")`);
+    miniPlayer.art.classList.add("has-image");
+  } else {
+    miniPlayer.art.style.removeProperty("--mini-player-art");
+    miniPlayer.art.classList.remove("has-image");
+  }
+
+  miniPlayer.progressFill.style.width = "0%";
+}
+
+function toggleSongPreview(suggestion, itemElement, button) {
+  if (!suggestion || !button || !itemElement) {
+    return;
+  }
+
+  if (!suggestion.previewUrl) {
+    const message = t("chat.songs.noPreview", {}, { fallback: "No preview available for this song." });
+    setChatStatus(message, "error");
+    setTimeout(() => {
+      if (chatStatus?.textContent === message) {
+        setChatStatus("", "");
+      }
+    }, 3000);
+    return;
+  }
+
+  ensureSongMiniPlayer();
+
+  if (songSuggestionPreviewState.audio && songSuggestionPreviewState.activeId !== suggestion.id) {
+    songSuggestionPreviewState.audio.pause();
+  }
+
+  if (songSuggestionPreviewState.activeId === suggestion.id) {
+    songSuggestionPreviewState.button = button;
+    songSuggestionPreviewState.item = itemElement;
+    songSuggestionPreviewState.card = itemElement.querySelector(".song-card");
+    if (songSuggestionPreviewState.audio?.paused) {
+      songSuggestionPreviewState.audio
+        .play()
+        .catch(() => undefined);
+    } else if (songSuggestionPreviewState.audio) {
+      songSuggestionPreviewState.audio.pause();
+    }
+    return;
+  }
+
+  if (songSuggestionPreviewState.item && songSuggestionPreviewState.item !== itemElement) {
+    songSuggestionPreviewState.item.classList.remove("is-playing");
+    songSuggestionPreviewState.card?.classList.remove("is-playing");
+    updateSongPreviewButtons(songSuggestionPreviewState.item, false);
+  }
+
+  songSuggestionPreviewState.button = button;
+  songSuggestionPreviewState.card = itemElement.querySelector(".song-card");
+  songSuggestionPreviewState.item = itemElement;
+
+  songSuggestionPreviewState.activeId = suggestion.id;
+  songSuggestionPreviewState.suggestion = suggestion;
+  songSuggestionPreviewState.isPlaying = false;
+
+  setMiniPlayerContent(suggestion);
+
+  if (songSuggestionPreviewState.audio) {
+    songSuggestionPreviewState.audio.src = suggestion.previewUrl;
+    songSuggestionPreviewState.audio.currentTime = 0;
+    if (songSuggestionPreviewState.miniPlayer) {
+      songSuggestionPreviewState.miniPlayer.progressFill.style.width = "0%";
+    }
+    songSuggestionPreviewState.audio
+      .play()
+      .catch(() => undefined);
+  }
+
+  updateMiniPlayerState();
+}
+
+function removeSongSuggestion(songId) {
+  if (songSuggestionPreviewState.activeId === songId) {
+    stopActiveSongPreview();
+  }
+  chatState.songSuggestions = chatState.songSuggestions.filter((suggestion) => suggestion.id !== songId);
+  if (!chatState.songSuggestions.length) {
+    stopActiveSongPreview();
+  }
+  renderSongSuggestions();
+}
+
+function renderSongSuggestions() {
+  if (!songSuggestionList) return;
+  songSuggestionList.innerHTML = "";
+
+  const suggestions = chatState.songSuggestions || [];
+  if (!suggestions.length) {
+    stopActiveSongPreview({ hidePlayer: true });
+    songSuggestionList.dataset.empty = "true";
+    const empty = document.createElement("p");
+    empty.className = "tag-empty";
+    empty.textContent = t("chat.tags.emptySong", {}, { fallback: "No songs yet." });
+    songSuggestionList.append(empty);
+    return;
+  }
+
+  songSuggestionList.removeAttribute("data-empty");
+
+  const list = document.createElement("ul");
+  list.className = "song-suggestions";
+  list.setAttribute("role", "list");
+
+  suggestions.forEach((suggestion) => {
+    if (!suggestion?.id) return;
+    const item = document.createElement("li");
+    item.className = "song-suggestions__item";
+    item.dataset.songId = suggestion.id;
+
+    if (!suggestion.previewUrl) {
+      ensurePreviewForSuggestion(suggestion);
+    }
+
+    const card = document.createElement("article");
+    card.className = "song-card";
+
+    const media = document.createElement("div");
+    media.className = "song-card__media";
+    if (suggestion.imageUrl) {
+      const image = document.createElement("img");
+      image.src = suggestion.imageUrl;
+      image.alt = "";
+      image.loading = "lazy";
+      media.append(image);
+    } else {
+      const placeholder = document.createElement("div");
+      placeholder.className = "song-card__placeholder";
+      placeholder.textContent = "♪";
+      media.append(placeholder);
+    }
+
+    const body = document.createElement("div");
+    body.className = "song-card__body";
+
+    const header = document.createElement("div");
+    header.className = "song-card__header";
+
+  const title = document.createElement("span");
+  title.className = "song-card__title";
+  title.textContent = suggestion.title;
+  header.append(title);
+
+    const removeButton = document.createElement("button");
+    removeButton.type = "button";
+    removeButton.className = "song-card__remove";
+    removeButton.setAttribute("data-action", "remove");
+    removeButton.textContent = t("chat.songs.remove", {}, { fallback: "Remove" });
+    removeButton.setAttribute(
+      "aria-label",
+      t("chat.songs.removeAria", { title: suggestion.title }, { fallback: `Remove ${suggestion.title}` })
+    );
+    header.append(removeButton);
+
+    body.append(header);
+
+    const artist = document.createElement("p");
+    artist.className = "song-card__artist";
+    artist.textContent = suggestion.artist || t("Unknown artist", {}, { fallback: "Unknown artist" });
+    body.append(artist);
+
+    const controls = document.createElement("div");
+    controls.className = "song-card__controls";
+
+    const playButton = document.createElement("button");
+    playButton.type = "button";
+    playButton.className = "song-card__play";
+
+    const playIcon = document.createElement("span");
+    playIcon.className = "song-card__play-icon";
+    playIcon.setAttribute("aria-hidden", "true");
+    playButton.append(playIcon);
+
+    if (suggestion.previewUrl) {
+      playButton.setAttribute("data-action", "preview");
+      playButton.dataset.previewKind = "icon";
+      playButton.setAttribute(
+        "aria-label",
+        t("chat.songs.playPreview", {}, { fallback: "Play preview" })
+      );
+
+      const previewButton = document.createElement("button");
+      previewButton.type = "button";
+      previewButton.className = "song-card__preview";
+      previewButton.setAttribute("data-action", "preview");
+      previewButton.dataset.previewKind = "text";
+      previewButton.dataset.usesText = "true";
+      previewButton.textContent = t("chat.songs.preview", {}, { fallback: "Preview" });
+
+      controls.append(playButton, previewButton);
+    } else {
+      playButton.disabled = true;
+      playButton.classList.add("is-disabled");
+      playButton.setAttribute("aria-disabled", "true");
+      const reasonText = formatPreviewUnavailableReason(suggestion.previewUnavailableReason);
+      playButton.setAttribute("aria-label", reasonText);
+      playButton.setAttribute("title", reasonText);
+      controls.append(playButton);
+
+      const reasonLabel = document.createElement("span");
+      reasonLabel.className = "song-card__no-preview";
+      reasonLabel.textContent = reasonText;
+      controls.append(reasonLabel);
+    }
+
+    if (suggestion.spotifyUrl) {
+      const link = document.createElement("a");
+      link.href = suggestion.spotifyUrl;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.className = "song-card__spotify";
+      link.setAttribute("data-action", "spotify");
+      link.innerHTML = `
+        <span class="song-card__spotify-icon" aria-hidden="true"></span>
+        <span class="sr-only">${t("Open in Spotify", {}, { fallback: "Open in Spotify" })}</span>
+      `;
+      controls.append(link);
+    }
+
+    if (controls.childElementCount) {
+      body.append(controls);
+    }
+
+    card.append(media, body);
+    item.append(card);
+    list.append(item);
+  });
+
+  songSuggestionList.append(list);
+
+  const previousPreviewKind = songSuggestionPreviewState.button?.dataset?.previewKind;
+
+  if (songSuggestionPreviewState.activeId) {
+    const activeItem = list.querySelector(`[data-song-id="${songSuggestionPreviewState.activeId}"]`);
+    if (activeItem instanceof HTMLElement) {
+      songSuggestionPreviewState.item = activeItem;
+      songSuggestionPreviewState.card = activeItem.querySelector(".song-card");
+      const candidateButtons = Array.from(
+        activeItem.querySelectorAll('[data-action="preview"]')
+      ).filter((button) => button instanceof HTMLElement);
+      const preferredButton = candidateButtons.find(
+        (button) => button.dataset?.previewKind === previousPreviewKind
+      );
+      const fallbackButton = candidateButtons[0];
+      songSuggestionPreviewState.button =
+        preferredButton instanceof HTMLElement
+          ? preferredButton
+          : fallbackButton instanceof HTMLElement
+          ? fallbackButton
+          : null;
+
+      updateSongPreviewButtons(activeItem, !!songSuggestionPreviewState.isPlaying);
+      updateMiniPlayerState();
+    } else {
+      stopActiveSongPreview({ hidePlayer: true });
+    }
+  }
+}
+
+function handleSongSuggestionClick(event) {
+  if (!(event.target instanceof HTMLElement)) {
+    return;
+  }
+
+  const actionElement = event.target.closest("[data-action]");
+  if (!(actionElement instanceof HTMLElement)) {
+    return;
+  }
+
+  const action = actionElement.dataset.action;
+  if (!action) {
+    return;
+  }
+
+  const item = actionElement.closest("[data-song-id]");
+  if (!(item instanceof HTMLElement)) {
+    return;
+  }
+
+  const songId = item.dataset.songId;
+  if (!songId) {
+    return;
+  }
+
+  if (action === "remove") {
+    event.preventDefault();
+    removeSongSuggestion(songId);
+    return;
+  }
+
+  if (action === "preview") {
+    event.preventDefault();
+    const suggestion = chatState.songSuggestions.find((entry) => entry?.id === songId);
+    if (suggestion) {
+      toggleSongPreview(suggestion, item, actionElement);
+    }
+    return;
+  }
+
+  if (action === "spotify") {
+    stopActiveSongPreview();
+  }
+}
+
 function populateChatPlaylistSelect(playlists) {
   if (!chatPlaylistSelect) return;
 
-  const previousValue = chatPlaylistSelect.value;
+  const previousValue = chatState.playlistContext?.id || chatPlaylistSelect.value;
   chatPlaylistSelect.innerHTML = "";
 
   const placeholder = document.createElement("option");
@@ -1861,8 +2970,8 @@ function populateChatPlaylistSelect(playlists) {
   playlists.slice(0, 200).forEach((playlist) => {
     if (!playlist?.id || !playlist?.name) return;
     const option = document.createElement("option");
-    option.value = playlist.id;
     const trackCount = typeof playlist.trackCount === "number" ? playlist.trackCount : undefined;
+    option.value = playlist.id;
     option.textContent = trackCount
       ? `${playlist.name} (${trackCount} ${getCopyLabel("song", trackCount)})`
       : playlist.name;
@@ -1968,10 +3077,12 @@ async function loadChatPlaylistDetails(playlistId) {
       songs,
     };
     chatState.didSendPlaylistContext = false;
+    chatState.playlistSummaryPostedId = null;
     updateChatPlaylistHint();
   } catch (error) {
     console.error("Chat playlist details error", error);
     chatState.playlistContext = null;
+    chatState.playlistSummaryPostedId = null;
     const message = error?.message
       ? t(error.message, {}, { fallback: error.message })
       : t("Couldn't load playlist songs.");
@@ -1986,6 +3097,7 @@ function handleChatPlaylistSelectChange() {
   const value = chatPlaylistSelect.value;
   chatState.playlistContext = null;
   chatState.didSendPlaylistContext = false;
+  chatState.playlistSummaryPostedId = null;
 
   if (!value) {
     updateChatPlaylistHint();
@@ -1995,17 +3107,183 @@ function handleChatPlaylistSelectChange() {
   loadChatPlaylistDetails(value);
 }
 
-function buildChatPlaylistPrompt() {
-  const sections = [
-    t(
-      "Create a cohesive Spotify playlist that reflects this brainstorming session. Capture mood, pacing, and storytelling across 20-25 tracks.",
-      {},
-      {
-        fallback:
-          "Create a cohesive Spotify playlist that reflects this brainstorming session. Capture mood, pacing, and storytelling across 20-25 tracks.",
+async function handleChatPlaylistSend() {
+  if (!chatPlaylistSelect) return;
+  const sendButton = chatSendPlaylistContextButton instanceof HTMLButtonElement ? chatSendPlaylistContextButton : null;
+  if (sendButton) {
+    sendButton.disabled = true;
+  }
+
+  if (chatBlocked) {
+    setChatPlaylistHint(t("Hold on a moment—still loading playlist details."), "error");
+    if (sendButton) {
+      sendButton.disabled = false;
+    }
+    return;
+  }
+
+  const playlistId = chatPlaylistSelect.value;
+  if (!playlistId) {
+    setChatPlaylistHint(t("chat.playlistModal.missingSelection"), "error");
+    if (sendButton) {
+      sendButton.disabled = false;
+    }
+    return;
+  }
+
+  if (chatPlaylistLoading) {
+    setChatPlaylistHint(t("Hold on a moment—still loading playlist details."), "error");
+    if (sendButton) {
+      sendButton.disabled = false;
+    }
+    return;
+  }
+
+  try {
+    if (!chatState.playlistContext || chatState.playlistContext.id !== playlistId) {
+      await loadChatPlaylistDetails(playlistId);
+    }
+
+    const context = chatState.playlistContext;
+    if (!context || context.id !== playlistId) {
+      setChatPlaylistHint(t("Couldn't load playlist songs."), "error");
+      return;
+    }
+
+    const songs = Array.isArray(context.songs) ? context.songs : [];
+    if (!songs.length) {
+      setChatPlaylistHint(t("Couldn't load playlist songs."), "error");
+      return;
+    }
+
+    if (chatState.playlistSummaryPostedId === playlistId) {
+      setChatPlaylistHint(t("chat.playlistModal.already"), "");
+      return;
+    }
+
+    setChatPlaylistHint(t("chat.playlistModal.sending"), "");
+
+    const total = songs.length;
+    const highlightCount = Math.min(total, 30);
+    const highlightLines = songs
+      .slice(0, highlightCount)
+      .map((song, index) => `${index + 1}. ${song.title} — ${song.artist}`);
+
+    const summaryHeading = highlightLines.length
+      ? t("chat.playlistModal.sentSummary", { name: context.name, total }, {
+          fallback: `Loaded playlist "${context.name}" with ${total} tracks. Here are a few highlights:`,
+        })
+      : t("chat.playlistModal.sentSummaryNoHighlights", { name: context.name, total }, {
+          fallback: `Loaded playlist "${context.name}" with ${total} tracks.`,
+        });
+
+    let summaryForModel = summaryHeading;
+    if (highlightLines.length) {
+      summaryForModel += `\n${highlightLines.join("\n")}`;
+      if (total > highlightCount) {
+        summaryForModel += `\n${t("chat.playlistModal.more", { count: total - highlightCount }, {
+          fallback: `… +${total - highlightCount} more`,
+        })}`;
       }
-    ),
-  ];
+    }
+
+    chatState.messages.push({ role: "user", content: summaryForModel });
+    chatState.playlistSummaryPostedId = playlistId;
+    chatState.playlistContext = context;
+    chatState.didSendPlaylistContext = false;
+
+    const wrapper = document.createElement("div");
+    wrapper.className = "chat-message chat-message--user";
+    const avatar = document.createElement("div");
+    avatar.className = "chat-message__avatar";
+    avatar.textContent = "🎧";
+    const bubble = document.createElement("div");
+    bubble.className = "chat-message__bubble";
+    const sender = document.createElement("span");
+    sender.className = "chat-message__sender";
+    sender.textContent = t("chat.sender.user", {}, { fallback: "You" });
+    const body = document.createElement("p");
+    body.className = "chat-message__body";
+    const intro = document.createElement("span");
+    intro.textContent = summaryHeading;
+    body.append(intro);
+
+    if (highlightLines.length) {
+      const list = document.createElement("ol");
+      list.className = "chat-liked-list";
+      songs.slice(0, highlightCount).forEach((song) => {
+        const li = document.createElement("li");
+        li.textContent = song.artist ? `${song.title} — ${song.artist}` : song.title;
+        list.append(li);
+      });
+      if (total > highlightCount) {
+        const more = document.createElement("li");
+        more.textContent = t("chat.playlistModal.more", { count: total - highlightCount }, {
+          fallback: `… +${total - highlightCount} more`,
+        });
+        list.append(more);
+      }
+      body.append(list);
+    }
+
+    bubble.append(sender, body);
+    wrapper.append(avatar, bubble);
+    chatLog?.append(wrapper);
+    chatLog?.scrollTo({ top: chatLog.scrollHeight, behavior: "smooth" });
+
+    closeChatPlaylistModal();
+    setChatPlaylistHint("", "");
+    setChatStatus(t("chat.playlistModal.ready"), "success");
+  } finally {
+    if (sendButton) {
+      sendButton.disabled = false;
+    }
+  }
+}
+
+function buildChatPlaylistPrompt() {
+  const activeSongs = getActiveSongSuggestions();
+  const activeSongLines = activeSongs.map((song) => {
+    const artistPart = song.artist ? ` — ${song.artist}` : "";
+    return `- ${song.title}${artistPart}`;
+  });
+
+  const sections = [];
+
+  if (activeSongLines.length) {
+    sections.push(
+      t(
+        "chat.songs.prompt.baseSelected",
+        {},
+        {
+          fallback:
+            "Create a cohesive Spotify playlist using only the songs the user kept from the suggestions. Provide a captivating name and a short description that reflects the chat context and these tracks.",
+        }
+      )
+    );
+    sections.push(
+      t(
+        "chat.songs.prompt.keepSelection",
+        {},
+        {
+          fallback:
+            "Do not add or remove songs. Feel free to suggest an order that enhances flow.",
+        }
+      )
+    );
+    sections.push(activeSongLines.join("\n"));
+  } else {
+    sections.push(
+      t(
+        "Create a cohesive Spotify playlist that reflects this brainstorming session. Capture mood, pacing, and storytelling across 20-25 tracks.",
+        {},
+        {
+          fallback:
+            "Create a cohesive Spotify playlist that reflects this brainstorming session. Capture mood, pacing, and storytelling across 20-25 tracks.",
+        }
+      )
+    );
+  }
 
   if (chatState.themeTags.length) {
     sections.push(
@@ -2016,17 +3294,41 @@ function buildChatPlaylistPrompt() {
       )
     );
   }
+  
+  if (!activeSongLines.length) {
+    const fallbackSongs = chatState.songSuggestions
+      .map((song) => (song ? `${song.title}${song.artist ? ` — ${song.artist}` : ""}` : ""))
+      .filter(Boolean);
+    if (fallbackSongs.length) {
+      sections.push(
+        t(
+          "Song references to echo or build around: {tags}",
+          { tags: fallbackSongs.join(", ") },
+          {
+            fallback: `Song references to echo or build around: ${fallbackSongs.join(", ")}`,
+          }
+        )
+      );
+    }
+  }
 
-  if (chatState.songTags.length) {
-    sections.push(
-      t(
-        "Song references to echo or build around: {tags}",
-        { tags: chatState.songTags.join(", ") },
-        {
-          fallback: `Song references to echo or build around: ${chatState.songTags.join(", ")}`,
-        }
-      )
+  if (chatState.likedSongs.length) {
+    const highlightCount = Math.min(chatState.likedSongs.length, 40);
+    const highlights = chatState.likedSongs
+      .slice(0, highlightCount)
+      .map((song, index) => `${index + 1}. ${song.name} — ${song.artist}`)
+      .join("\n");
+    const likedSection = t(
+      "Liked songs uploaded ({total}). Sample:\n{highlights}",
+      {
+        total: chatState.likedSongs.length,
+        highlights,
+      },
+      {
+        fallback: `Liked songs uploaded (${chatState.likedSongs.length}). Sample:\n${highlights}`,
+      }
     );
+    sections.push(likedSection);
   }
 
   if (chatState.playlistContext) {
@@ -2111,9 +3413,6 @@ function removeTag(group, value) {
   if (group === "theme") {
     chatState.themeTags = chatState.themeTags.filter((tag) => tag.trim().toLowerCase() !== normalized);
     renderTagGroup(themeTagList, chatState.themeTags, "theme", "chat.tags.emptyTheme");
-  } else if (group === "song") {
-    chatState.songTags = chatState.songTags.filter((tag) => tag.trim().toLowerCase() !== normalized);
-    renderTagGroup(songTagList, chatState.songTags, "song", "chat.tags.emptySong");
   }
 }
 
@@ -2132,8 +3431,10 @@ function resetChat() {
   chatState.initialAssistantMessage = initialAssistantMessage;
   chatState.messages = [{ role: "assistant", content: initialAssistantMessage }];
   chatState.themeTags = [];
-  chatState.songTags = [];
+  chatState.songSuggestions = [];
   chatState.didSendPlaylistContext = false;
+  chatState.likedSongs = [];
+  chatState.playlistSummaryPostedId = null;
 
   if (chatInput) {
     chatInput.value = "";
@@ -2145,11 +3446,12 @@ function resetChat() {
   }
 
   renderTagGroup(themeTagList, chatState.themeTags, "theme", "chat.tags.emptyTheme");
-  renderTagGroup(songTagList, chatState.songTags, "song", "chat.tags.emptySong");
+  renderSongSuggestions();
 
   setChatStatus("", "");
   setChatCreationStatus("", "");
   updateChatPlaylistHint();
+  updateLikedSongsButtonState();
 }
 
 async function requestChatResponse(messages, modelName, options = {}) {
@@ -2182,6 +3484,7 @@ async function requestChatResponse(messages, modelName, options = {}) {
 
 async function handleChatSubmit(event) {
   event.preventDefault();
+  if (chatBlocked) return;
   if (!chatInput) return;
   const message = chatInput.value.trim();
   if (!message) {
@@ -2194,9 +3497,9 @@ async function handleChatSubmit(event) {
     return;
   }
 
-  const isFirstUserMessage = !chatState.messages.some((entry) => entry.role === "user");
-  const playlistContext =
-    isFirstUserMessage && chatState.playlistContext ? chatState.playlistContext : null;
+  const shouldAttachPlaylistContext =
+    chatState.playlistContext && !chatState.didSendPlaylistContext;
+  const playlistContext = shouldAttachPlaylistContext ? chatState.playlistContext : null;
 
   chatState.messages.push({ role: "user", content: message });
   appendChatMessage("user", message);
@@ -2205,7 +3508,7 @@ async function handleChatSubmit(event) {
 
   if (chatSendButton) {
     chatSendButton.disabled = true;
-    chatSendButton.textContent = t("Sending…");
+    chatSendButton.classList.add("is-loading");
   }
 
   try {
@@ -2231,26 +3534,35 @@ async function handleChatSubmit(event) {
       : Array.isArray(payload.tags)
       ? payload.tags
       : [];
-    const incomingSongs = Array.isArray(payload.songExamples)
+    const incomingSongLabels = Array.isArray(payload.songExamples)
       ? payload.songExamples
       : Array.isArray(payload.songTags)
       ? payload.songTags
       : [];
+    const structuredSuggestions = Array.isArray(payload.songSuggestions)
+      ? payload.songSuggestions
+      : [];
+    const combinedSongSuggestions = structuredSuggestions.length
+      ? structuredSuggestions
+      : incomingSongLabels;
 
     if (incomingThemes.length) {
       chatState.themeTags = mergeTags(chatState.themeTags, incomingThemes);
     }
 
-    if (incomingSongs.length) {
-      chatState.songTags = mergeTags(chatState.songTags, incomingSongs);
+    if (combinedSongSuggestions.length) {
+      chatState.songSuggestions = mergeSongSuggestions(
+        chatState.songSuggestions,
+        combinedSongSuggestions
+      );
     }
 
-  renderTagGroup(themeTagList, chatState.themeTags, "theme", "chat.tags.emptyTheme");
-  renderTagGroup(songTagList, chatState.songTags, "song", "chat.tags.emptySong");
+    renderTagGroup(themeTagList, chatState.themeTags, "theme", "chat.tags.emptyTheme");
+    renderSongSuggestions();
 
     if (reply) {
       setChatStatus(t("Reply received!"), "success");
-    } else if (!incomingThemes.length && !incomingSongs.length) {
+    } else if (!incomingThemes.length && !combinedSongSuggestions.length) {
       setChatStatus(t("Conversation refreshed, no new tags this time."), "");
     } else {
       setChatStatus(t("Tags updated!"), "success");
@@ -2266,7 +3578,7 @@ async function handleChatSubmit(event) {
   } finally {
     if (chatSendButton) {
       chatSendButton.disabled = false;
-      chatSendButton.textContent = t("chat.form.send");
+      chatSendButton.classList.remove("is-loading");
     }
   }
 }
@@ -2296,10 +3608,19 @@ function handleChatInputKeydown(event) {
 async function handleChatPlaylistCreation() {
   if (!chatCreatePlaylistButton) return;
 
+  const selectedSongs = getActiveSongSuggestions();
   const hasConversation = chatState.messages.some((message) => message.role === "user");
-  const hasTags = chatState.themeTags.length > 0 || chatState.songTags.length > 0;
+  const hasContext = hasConversation || chatState.themeTags.length > 0 || selectedSongs.length > 0;
 
-  if (!hasConversation && !hasTags) {
+  if (!selectedSongs.length) {
+    setChatCreationStatus(
+      t("chat.songs.selectBeforeCreate", {}, { fallback: "Keep at least one suggested song before creating a playlist." }),
+      "error"
+    );
+    return;
+  }
+
+  if (!hasContext) {
     setChatCreationStatus(
       t("Chat with Gemini or capture some tags before creating a playlist."),
       "error"
@@ -2333,6 +3654,13 @@ async function handleChatPlaylistCreation() {
     }
     if (chatState.playlistContext?.id) {
       payload.playlistId = chatState.playlistContext.id;
+    }
+    if (selectedSongs.length) {
+      payload.songs = selectedSongs.map((song) => ({
+        title: song.title,
+        artist: song.artist,
+        uri: song.uri ?? undefined,
+      }));
     }
 
     const response = await fetch("/create-custom-playlist", {
@@ -3505,17 +4833,209 @@ viewButtons.forEach((button) => {
 chatForm?.addEventListener("submit", handleChatSubmit);
 chatInput?.addEventListener("keydown", handleChatInputKeydown);
 themeTagList?.addEventListener("click", handleTagListClick);
-songTagList?.addEventListener("click", handleTagListClick);
+songSuggestionList?.addEventListener("click", handleSongSuggestionClick);
 chatCreatePlaylistButton?.addEventListener("click", handleChatPlaylistCreation);
 chatResetButton?.addEventListener("click", resetChat);
 chatPlaylistSelect?.addEventListener("change", handleChatPlaylistSelectChange);
 chatRefreshPlaylistsButton?.addEventListener("click", () =>
   loadUserPlaylists({ trigger: "manual", source: "chat" })
 );
+chatOpenPlaylistModalButton?.addEventListener("click", openChatPlaylistModal);
+chatPlaylistModalCloseButton?.addEventListener("click", () => closeChatPlaylistModal());
+chatPlaylistModalCancelButton?.addEventListener("click", () => closeChatPlaylistModal());
+chatPlaylistModalBackdrop?.addEventListener("click", () => closeChatPlaylistModal());
+chatSendPlaylistContextButton?.addEventListener("click", handleChatPlaylistSend);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && isChatPlaylistModalOpen()) {
+    closeChatPlaylistModal();
+  }
+});
+
+// upload dropdown toggle
+if (chatUploadToggle) {
+  chatUploadToggle.addEventListener('click', (e) => {
+    e.preventDefault();
+    const expanded = chatUploadToggle.getAttribute('aria-expanded') === 'true';
+    chatUploadToggle.setAttribute('aria-expanded', String(!expanded));
+    if (chatUploadDropdown) {
+      chatUploadDropdown.hidden = expanded;
+    }
+  });
+
+  document.addEventListener('click', (event) => {
+    if (!chatUploadDropdown) return;
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (!target) return;
+    if (target === chatUploadToggle || chatUploadToggle.contains(target)) {
+      return;
+    }
+    if (!chatUploadDropdown.hidden && !chatUploadDropdown.contains(target)) {
+      chatUploadDropdown.hidden = true;
+      chatUploadToggle.setAttribute('aria-expanded', 'false');
+    }
+  });
+}
+
+if (sendLikedSongsButton) {
+  sendLikedSongsButton.addEventListener('click', async (e) => {
+    e.preventDefault();
+    if (chatBlocked) return;
+    if (chatState.likedSongs.length > 0) {
+      setChatStatus(t('chat.liked.already'), '');
+      return;
+    }
+    chatUploadToggle?.setAttribute('aria-expanded', 'false');
+    if (chatUploadDropdown) chatUploadDropdown.hidden = true;
+
+    // create pending user message
+    const pendingCopy = t('chat.liked.sending');
+    chatState.messages.push({ role: 'user', content: pendingCopy });
+    const messageIndex = chatState.messages.length - 1;
+
+    const wrapper = document.createElement('div');
+    wrapper.className = 'chat-message chat-message--user chat-message--pending';
+    const avatar = document.createElement('div');
+    avatar.className = 'chat-message__avatar';
+    avatar.textContent = '🎧';
+    const bubble = document.createElement('div');
+    bubble.className = 'chat-message__bubble';
+    const sender = document.createElement('span');
+    sender.className = 'chat-message__sender';
+    sender.textContent = t('chat.sender.user', {}, { fallback: 'You' });
+    const body = document.createElement('p');
+    body.className = 'chat-message__body';
+  const intro = document.createElement('span');
+  intro.textContent = pendingCopy;
+  body.append(intro);
+    const loader = document.createElement('div');
+    loader.className = 'chat-message__inline-loader';
+  loader.setAttribute('aria-hidden', 'true');
+    body.append(loader);
+    bubble.append(sender, body);
+    wrapper.append(avatar, bubble);
+    chatLog?.append(wrapper);
+    chatLog?.scrollTo({ top: chatLog.scrollHeight, behavior: 'smooth' });
+
+    blockChat();
+    setChatStatus(t('chat.liked.sending'), '');
+
+    try {
+      const response = await fetch('/liked-songs');
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(payload.error || 'Failed to send liked songs');
+      }
+
+      const likedSongs = await response.json().catch(() => []);
+      if (!Array.isArray(likedSongs)) {
+        throw new Error('Failed to send liked songs');
+      }
+
+      chatState.likedSongs = likedSongs;
+      updateLikedSongsButtonState();
+      const total = likedSongs.length;
+      const highlightCount = Math.min(total, 30);
+      const highlightLines = likedSongs
+        .slice(0, highlightCount)
+        .map((song, index) => `${index + 1}. ${song.name} — ${song.artist}`);
+
+      const summaryHeading = highlightLines.length
+        ? t('chat.liked.sentSummary', { total }, {
+            fallback: `Sent ${total} liked songs. Here are a few highlights:`,
+          })
+        : t('chat.liked.sentSummaryNoHighlights', { total }, {
+            fallback: `Sent ${total} liked songs.`,
+          });
+
+      let summaryForModel = summaryHeading;
+      if (highlightLines.length) {
+        summaryForModel += `\n${highlightLines.join('\n')}`;
+        if (total > highlightCount) {
+          summaryForModel += `\n${t('chat.liked.more', { count: total - highlightCount }, {
+            fallback: `… +${total - highlightCount} more`,
+          })}`;
+        }
+      }
+      chatState.messages[messageIndex].content = summaryForModel;
+
+      wrapper.classList.remove('chat-message--pending');
+      body.innerHTML = '';
+      const intro = document.createElement('span');
+      intro.textContent = summaryHeading;
+      body.append(intro);
+
+      if (highlightLines.length) {
+        const list = document.createElement('ol');
+        list.className = 'chat-liked-list';
+        likedSongs.slice(0, highlightCount).forEach((song) => {
+          const li = document.createElement('li');
+          const artist = song.artist || song.artistName || '';
+          li.textContent = artist ? `${song.name} — ${artist}` : song.name;
+          list.append(li);
+        });
+        if (total > highlightCount) {
+          const more = document.createElement('li');
+          more.textContent = t('chat.liked.more', { count: total - highlightCount }, {
+            fallback: `… +${total - highlightCount} more`,
+          });
+          list.append(more);
+        }
+        body.append(list);
+      }
+
+      const playlistContext = !chatState.didSendPlaylistContext && chatState.playlistContext
+        ? chatState.playlistContext
+        : null;
+
+      try {
+        setChatStatus(t('Checking with Gemini…'), '');
+        const recentMessages = chatState.messages.slice(-MAX_CHAT_HISTORY);
+        const selectedModel = getSelectedModel();
+        const payload = await requestChatResponse(recentMessages, selectedModel, {
+          playlist: playlistContext || undefined,
+        });
+
+        const reply = typeof payload?.reply === 'string' ? payload.reply.trim() : '';
+        if (reply) {
+          chatState.messages.push({ role: 'assistant', content: reply });
+          appendChatMessage('assistant', reply);
+        }
+
+        if (playlistContext) {
+          chatState.didSendPlaylistContext = true;
+          updateChatPlaylistHint();
+        }
+        if (reply) {
+          setChatStatus(t('Reply received!'), 'success');
+        } else {
+          setChatStatus(t('Conversation refreshed, no new tags this time.'), '');
+        }
+      } catch (error) {
+        console.error('Chat follow-up error', error);
+        const fallback = t('We couldn’t chat with the model right now.');
+        const message =
+          typeof error?.message === 'string'
+            ? t(error.message, {}, { fallback: error.message })
+            : fallback;
+        setChatStatus(message || fallback, 'error');
+      }
+    } catch (error) {
+      console.error('Send liked songs error', error);
+      chatState.messages.pop();
+      wrapper.remove();
+      setChatStatus(t(error.message || 'Failed to send liked songs'), 'error');
+      updateLikedSongsButtonState();
+    } finally {
+      unblockChat();
+    }
+  });
+}
 
 renderTagGroup(themeTagList, chatState.themeTags, "theme", "chat.tags.emptyTheme");
-renderTagGroup(songTagList, chatState.songTags, "song", "chat.tags.emptySong");
+renderSongSuggestions();
 updateChatPlaylistHint();
+updateLikedSongsButtonState();
 switchView("playlists");
 
 function refreshDataIfUnloaded() {

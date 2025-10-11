@@ -64,6 +64,17 @@ export interface ChatPlaylistContext {
   songs: Song[];
 }
 
+export interface ChatSongSuggestion {
+  id: string;
+  title: string;
+  artist: string;
+  album?: string;
+  previewUrl?: string | null;
+  uri?: string | null;
+  spotifyUrl?: string;
+  imageUrl?: string;
+}
+
 export interface TrackSearchCandidate {
   uri: string;
   title: string;
@@ -96,4 +107,5 @@ export interface GenerateChatSuggestionResult {
   reply: string;
   themeTags: string[];
   songExamples: string[];
+  songSuggestions: ChatSongSuggestion[];
 }
