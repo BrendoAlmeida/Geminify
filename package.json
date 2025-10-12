@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node --loader ts-node/esm src/server.ts",
-  "dev": "npx nodemon --watch src --ext ts,json --exec \"node --loader ts-node/esm\" src/server.ts",
+    "dev": "npx nodemon --watch src --ext ts,json --exec \"node --loader ts-node/esm\" src/server.ts",
     "build": "tsc",
     "serve": "node dist/server.js",
     "setup": "node --loader ts-node/esm scripts/setup.ts"
@@ -15,12 +15,13 @@
   "author": "",
   "license": "ISC",
   "dependencies": {
-  "@google/generative-ai": "^0.12.0",
+    "@google/generative-ai": "^0.12.0",
     "axios": "^1.7.2",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "formidable": "^3.5.4",
     "prettier": "^3.3.2",
+    "spotify-preview-finder": "^2.1.0",
     "spotify-web-api-node": "^5.0.2",
     "superagent": "^10.2.3"
   },

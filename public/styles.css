@@ -1046,6 +1046,77 @@ body.modal-open {
   font-size: 0.85rem;
 }
 
+.mini-player__volume {
+  margin-top: 16px;
+}
+
+.mini-player__volume-slider {
+  width: 100%;
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.08);
+  background-image: linear-gradient(90deg, rgba(125, 211, 255, 0.9), rgba(56, 189, 248, 0.65));
+  background-size: var(--volume-percent, 100%) 100%;
+  background-repeat: no-repeat;
+  cursor: pointer;
+  position: relative;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+  transition: background-size 150ms ease;
+}
+
+.mini-player__volume-slider::-moz-range-track {
+  height: 4px;
+  border-radius: 999px;
+  background-color: rgba(255, 255, 255, 0.08);
+  background-image: linear-gradient(90deg, rgba(125, 211, 255, 0.9), rgba(56, 189, 248, 0.65));
+  background-size: var(--volume-percent, 100%) 100%;
+  background-repeat: no-repeat;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.mini-player__volume-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.95), rgba(148, 197, 255, 0.85));
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.mini-player__volume-slider::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, rgba(255, 255, 255, 0.95), rgba(148, 197, 255, 0.85));
+  border: 1px solid rgba(255, 255, 255, 0.6);
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+  transition: transform 150ms ease, box-shadow 150ms ease;
+}
+
+.mini-player__volume-slider::-webkit-slider-thumb:hover,
+.mini-player__volume-slider::-moz-range-thumb:hover,
+.mini-player__volume-slider:focus-visible::-webkit-slider-thumb,
+.mini-player__volume-slider:focus-visible::-moz-range-thumb {
+  transform: scale(1.05);
+  box-shadow: 0 6px 16px rgba(56, 189, 248, 0.32);
+}
+
+.mini-player__volume-slider::-webkit-slider-thumb:active,
+.mini-player__volume-slider::-moz-range-thumb:active {
+  transform: scale(1.12);
+  box-shadow: 0 10px 24px rgba(56, 189, 248, 0.38);
+}
+
+.mini-player__volume-slider:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.24), 0 0 0 3px rgba(56, 189, 248, 0.35);
+}
+
 .mini-player__controls {
   display: flex;
   align-items: center;

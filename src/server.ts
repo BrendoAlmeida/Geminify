@@ -9,11 +9,18 @@ function ensureEnvironment() {
 	assertEnv(geminiConfig.apiKey, "GEMINI_API_KEY");
 }
 
-ensureEnvironment();
+async function startServer() {
+	ensureEnvironment();
 
-const app = createApp();
-const { port } = appConfig;
+	const app = createApp();
+	const { port } = appConfig;
 
-app.listen(port, () => {
-	log(`Server listening on port ${port}`);
+	app.listen(port, () => {
+		log(`Server listening on port ${port}`);
+	});
+}
+
+startServer().catch((error) => {
+	console.error("Fatal startup error", error);
+	process.exit(1);
 });

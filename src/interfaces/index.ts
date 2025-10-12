@@ -73,6 +73,7 @@ export interface ChatSongSuggestion {
   uri?: string | null;
   spotifyUrl?: string;
   imageUrl?: string;
+  previewUnavailableReason?: string | null;
 }
 
 export interface TrackSearchCandidate {

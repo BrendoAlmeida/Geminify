@@ -1,6 +1,7 @@
 import { createHash } from "crypto";
 import { geminiConfig } from "../config/env";
 import { geminiClient } from "./geminiClient";
+import spotifyPreviewFinder from "spotify-preview-finder";
 import {
   ChatMessage,
   ChatPlaylistContext,
@@ -106,6 +107,70 @@ interface ParsedSongExample {
   artist?: string;
 }
 
+const previewFinderCache = new Map<string, string | null>();
+
+async function findPreviewUrl(
+  title: string,
+  artist?: string
+): Promise<string | null> {
+  const normalizedTitle = title.trim();
+  const normalizedArtist = artist?.trim() ?? "";
+  if (!normalizedTitle) {
+    return null;
+  }
+
+  const cacheKey = `${normalizedTitle.toLowerCase()}|${normalizedArtist.toLowerCase()}`;
+  if (previewFinderCache.has(cacheKey)) {
+    return previewFinderCache.get(cacheKey) ?? null;
+  }
+
+  try {
+    const lookupLimit = normalizedArtist ? 3 : 5;
+    const response = normalizedArtist
+      ? await spotifyPreviewFinder(normalizedTitle, normalizedArtist, lookupLimit)
+      : await spotifyPreviewFinder(normalizedTitle, lookupLimit);
+
+    if (response?.success && Array.isArray(response.results)) {
+      for (const item of response.results) {
+        const url = item?.previewUrls?.find((candidate) => typeof candidate === "string" && candidate.trim());
+        if (url) {
+          previewFinderCache.set(cacheKey, url);
+          return url;
+        }
+      }
+    }
+
+    previewFinderCache.set(cacheKey, null);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    log(`Preview finder failed for "${normalizedTitle}"${normalizedArtist ? ` by ${normalizedArtist}` : ""}: ${message}`);
+    previewFinderCache.set(cacheKey, null);
+  }
+
+  return null;
+}
+
+async function ensureSuggestionPreview(
+  suggestion: ChatSongSuggestion,
+  parsed: ParsedSongExample
+): Promise<void> {
+  if (suggestion.previewUrl) {
+    suggestion.previewUnavailableReason = null;
+    return;
+  }
+
+  const title = suggestion.title || parsed.title;
+  const artist = suggestion.artist || parsed.artist;
+
+  const previewUrl = await findPreviewUrl(title || "", artist);
+  if (previewUrl) {
+    suggestion.previewUrl = previewUrl;
+    suggestion.previewUnavailableReason = null;
+  } else if (!suggestion.previewUnavailableReason) {
+    suggestion.previewUnavailableReason = "no_preview";
+  }
+}
+
 function parseSongExample(example: string): ParsedSongExample {
   const raw = example.trim();
   if (!raw) {
@@ -131,11 +196,13 @@ function parseSongExample(example: string): ParsedSongExample {
 function buildFallbackSuggestion(
   parsed: ParsedSongExample,
   example: string,
-  index: number
+  index: number,
+  options: { reason?: string } = {}
 ): ChatSongSuggestion {
   const baseTitle = parsed.title || example.trim();
   const baseArtist = parsed.artist ?? "";
   const id = createSuggestionId(`${baseTitle}:${baseArtist}:${index}`);
+  const { reason } = options;
 
   return {
     id,
@@ -146,6 +213,7 @@ function buildFallbackSuggestion(
     uri: null,
     spotifyUrl: undefined,
     imageUrl: undefined,
+    previewUnavailableReason: reason ?? null,
   };
 }
 
@@ -191,10 +259,6 @@ function scoreTrackMatch(
         score += hasMatch ? 5 : -2;
       }
     }
-  }
-
-  if (track.preview_url) {
-    score += 0.75;
   }
 
   score += track.popularity / 120;
@@ -289,13 +353,14 @@ async function resolveChatSongSuggestions(songExamples: string[]): Promise<ChatS
   try {
     await refreshTokenIfNeeded();
   } catch (error) {
+    const reason = error instanceof MissingTokenError ? "auth_required" : "no_preview";
     if (error instanceof MissingTokenError) {
       log("Spotify authentication missing for chat suggestions; returning basic entries.");
     } else {
       log(`Failed to refresh Spotify token for chat suggestions: ${formatSpotifyError(error)}`);
     }
     return songExamples.map((example, index) =>
-      buildFallbackSuggestion(parseSongExample(example), example, index)
+      buildFallbackSuggestion(parseSongExample(example), example, index, { reason })
     );
   }
 
@@ -305,20 +370,26 @@ async function resolveChatSongSuggestions(songExamples: string[]): Promise<ChatS
     const example = songExamples[index];
     const parsed = parseSongExample(example);
     if (!parsed.title) {
-      suggestions.push(buildFallbackSuggestion(parsed, example, index));
+      suggestions.push(buildFallbackSuggestion(parsed, example, index, { reason: "no_preview" }));
       continue;
     }
 
     try {
       const track = await findBestTrackForSuggestion(parsed, example);
       if (track) {
-        suggestions.push(mapTrackToSuggestion(track, parsed, index));
+        const suggestion = mapTrackToSuggestion(track, parsed, index);
+        await ensureSuggestionPreview(suggestion, parsed);
+        suggestions.push(suggestion);
       } else {
-        suggestions.push(buildFallbackSuggestion(parsed, example, index));
+        const suggestion = buildFallbackSuggestion(parsed, example, index, { reason: "no_preview" });
+        await ensureSuggestionPreview(suggestion, parsed);
+        suggestions.push(suggestion);
       }
     } catch (error) {
       log(`Failed to resolve chat song suggestion "${example}": ${formatSpotifyError(error)}`);
-      suggestions.push(buildFallbackSuggestion(parsed, example, index));
+      const fallback = buildFallbackSuggestion(parsed, example, index, { reason: "error" });
+      await ensureSuggestionPreview(fallback, parsed);
+      suggestions.push(fallback);
     }
 
     if (index < songExamples.length - 1) {
@@ -521,7 +592,7 @@ export async function generateChatSuggestion(
     } catch (error) {
       log(`Failed to enrich chat song suggestions: ${formatSpotifyError(error)}`);
       songSuggestions = songExamples.map((example, index) =>
-        buildFallbackSuggestion(parseSongExample(example), example, index)
+        buildFallbackSuggestion(parseSongExample(example), example, index, { reason: "error" })
       );
     }
   }

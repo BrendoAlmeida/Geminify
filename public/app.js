@@ -122,6 +122,7 @@ const songSuggestionPreviewState = {
   isPlaying: false,
   suggestion: null,
   miniPlayer: null,
+  volume: 1,
 };
 
 const songPreviewLookupState = {
@@ -358,6 +359,7 @@ const TRANSLATIONS = {
         pausePreview: "Pause preview",
         closePlayer: "Close mini player",
         playerNowPlaying: "Now playing",
+  volume: "Volume",
         noPreview: "No preview available for this song.",
         previewUnavailableReason: {
           no_preview: "Spotify didn't provide a preview for this song.",
@@ -365,6 +367,7 @@ const TRANSLATIONS = {
           subscription_required: "Preview requires Spotify Premium or a supported device.",
           explicit: "Preview blocked because the track is marked explicit.",
           not_playable: "Spotify reports this track isn't currently playable.",
+          auth_required: "Connect your Spotify account to enable previews.",
           error: "We couldn't check the preview right now.",
           unknown: "Preview unavailable for an unknown reason.",
         },
@@ -674,6 +677,7 @@ const TRANSLATIONS = {
         pausePreview: "Pausar prévia",
         closePlayer: "Fechar mini player",
         playerNowPlaying: "Tocando agora",
+  volume: "Volume",
         noPreview: "Não há prévia disponível para esta música.",
         previewUnavailableReason: {
           no_preview: "O Spotify não forneceu uma prévia para esta faixa.",
@@ -681,6 +685,7 @@ const TRANSLATIONS = {
           subscription_required: "Essa prévia exige o Spotify Premium ou um dispositivo compatível.",
           explicit: "A prévia foi bloqueada porque a faixa é marcada como explícita.",
           not_playable: "O Spotify informou que esta faixa não está disponível no momento.",
+          auth_required: "Entre com o Spotify para liberar as prévias.",
           error: "Não conseguimos verificar a prévia agora.",
           unknown: "A prévia está indisponível por um motivo desconhecido.",
         },
@@ -2333,6 +2338,44 @@ function ensureSongMiniPlayer() {
 
   controls.append(playButton, closeButton);
 
+  const volume = document.createElement("div");
+  volume.className = "mini-player__volume";
+
+  const volumeSlider = document.createElement("input");
+  volumeSlider.type = "range";
+  volumeSlider.className = "mini-player__volume-slider";
+  volumeSlider.min = "0";
+  volumeSlider.max = "1";
+  volumeSlider.step = "0.05";
+  volumeSlider.value = String(songSuggestionPreviewState.volume);
+  volumeSlider.setAttribute(
+    "aria-label",
+    t("chat.songs.volume", {}, { fallback: "Volume" })
+  );
+
+  const applyVolume = (value) => {
+    const numeric = Number(value);
+    const clamped = Number.isFinite(numeric) ? Math.min(Math.max(numeric, 0), 1) : 1;
+    volumeSlider.value = String(clamped);
+    const percent = `${Math.round(clamped * 100)}%`;
+    volumeSlider.style.setProperty("--volume-percent", percent);
+    songSuggestionPreviewState.volume = clamped;
+    if (songSuggestionPreviewState.audio) {
+      songSuggestionPreviewState.audio.volume = clamped;
+    }
+  };
+
+  volumeSlider.addEventListener("input", () => {
+    applyVolume(volumeSlider.value);
+  });
+  volumeSlider.addEventListener("change", () => {
+    applyVolume(volumeSlider.value);
+  });
+
+  applyVolume(volumeSlider.value);
+
+  volume.append(volumeSlider);
+
   const progress = document.createElement("div");
   progress.className = "mini-player__progress";
   const progressFill = document.createElement("div");
@@ -2340,11 +2383,12 @@ function ensureSongMiniPlayer() {
   progress.append(progressFill);
 
   content.append(art, info, controls);
-  container.append(content, progress);
+  container.append(content, volume, progress);
 
   const audio = document.createElement("audio");
   audio.preload = "none";
   audio.hidden = true;
+  audio.volume = songSuggestionPreviewState.volume;
   container.append(audio);
 
   document.body.append(container);
@@ -2357,6 +2401,8 @@ function ensureSongMiniPlayer() {
     artist,
     playButton,
     closeButton,
+    volume,
+    volumeSlider,
     progress,
     progressFill,
   };
@@ -2408,6 +2454,18 @@ function ensureSongMiniPlayer() {
     songSuggestionPreviewState.miniPlayer.progressFill.style.width = `${percent}%`;
   });
 
+  audio.addEventListener("volumechange", () => {
+    const currentVolume = Math.min(Math.max(audio.volume, 0), 1);
+    songSuggestionPreviewState.volume = currentVolume;
+    if (songSuggestionPreviewState.miniPlayer?.volumeSlider) {
+      const slider = songSuggestionPreviewState.miniPlayer.volumeSlider;
+      if (document.activeElement !== slider) {
+        slider.value = String(currentVolume);
+      }
+      slider.style.setProperty("--volume-percent", `${Math.round(currentVolume * 100)}%`);
+    }
+  });
+
   return miniPlayer;
 }
 
@@ -2449,6 +2507,12 @@ function updateMiniPlayerState() {
 
   if (!isPlaying && audio.currentTime === 0) {
     miniPlayer.progressFill.style.width = "0%";
+  }
+
+  if (miniPlayer.volumeSlider && document.activeElement !== miniPlayer.volumeSlider) {
+    const currentVolume = Math.min(Math.max(audio.volume, 0), 1);
+    miniPlayer.volumeSlider.value = String(currentVolume);
+    miniPlayer.volumeSlider.style.setProperty("--volume-percent", `${Math.round(currentVolume * 100)}%`);
   }
 }
 
@@ -2493,6 +2557,10 @@ function normalizeIncomingSongSuggestion(raw, index = 0) {
 
   const title = typeof raw.title === "string" ? raw.title.trim() : typeof raw.name === "string" ? raw.name.trim() : "";
   const artist = typeof raw.artist === "string" ? raw.artist.trim() : "";
+  const reason =
+    typeof raw.previewUnavailableReason === "string" && raw.previewUnavailableReason.trim()
+      ? raw.previewUnavailableReason.trim()
+      : undefined;
   if (!title) {
     return null;
   }
@@ -2528,6 +2596,7 @@ function normalizeIncomingSongSuggestion(raw, index = 0) {
         : Array.isArray(raw.images) && raw.images[0]
         ? raw.images[0]
         : undefined,
+    previewUnavailableReason: reason,
   };
 }
 
@@ -2565,6 +2634,9 @@ function mergeSongSuggestions(current, incoming) {
       }
       if (normalized.imageUrl) {
         existing.imageUrl = normalized.imageUrl;
+      }
+      if (normalized.previewUnavailableReason !== undefined) {
+        existing.previewUnavailableReason = normalized.previewUnavailableReason;
       }
     } else {
       merged.push({
@@ -2633,13 +2705,26 @@ function setMiniPlayerContent(suggestion) {
   if (suggestion.imageUrl) {
     const safeUrl = suggestion.imageUrl.replace(/"/g, '\\"');
     miniPlayer.art.style.setProperty("--mini-player-art", `url("${safeUrl}")`);
+    miniPlayer.art.style.backgroundImage = `url("${safeUrl}")`;
     miniPlayer.art.classList.add("has-image");
   } else {
     miniPlayer.art.style.removeProperty("--mini-player-art");
+    miniPlayer.art.style.backgroundImage = "";
     miniPlayer.art.classList.remove("has-image");
   }
 
   miniPlayer.progressFill.style.width = "0%";
+
+  if (miniPlayer.volumeSlider && document.activeElement !== miniPlayer.volumeSlider) {
+    const currentVolume = Math.min(Math.max(songSuggestionPreviewState.volume, 0), 1);
+    miniPlayer.volumeSlider.value = String(currentVolume);
+  }
+  if (miniPlayer.volumeSlider) {
+    miniPlayer.volumeSlider.style.setProperty(
+      "--volume-percent",
+      `${Math.round(Math.min(Math.max(songSuggestionPreviewState.volume, 0), 1) * 100)}%`
+    );
+  }
 }
 
 function toggleSongPreview(suggestion, itemElement, button) {
@@ -2697,6 +2782,7 @@ function toggleSongPreview(suggestion, itemElement, button) {
   if (songSuggestionPreviewState.audio) {
     songSuggestionPreviewState.audio.src = suggestion.previewUrl;
     songSuggestionPreviewState.audio.currentTime = 0;
+    songSuggestionPreviewState.audio.volume = songSuggestionPreviewState.volume;
     if (songSuggestionPreviewState.miniPlayer) {
       songSuggestionPreviewState.miniPlayer.progressFill.style.width = "0%";
     }
