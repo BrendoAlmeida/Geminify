@@ -35,6 +35,19 @@ Create custom playlists from text prompts:
 - On-page Gemini model picker so you can swap between Flash, Pro, or tuned variants without touching the backend
 - A dedicated hub that clusters every liked track by genre so you can explore your library style by style before saving to Spotify
 
+### 4. Idea Lounge & Chat-to-Playlist Studio 💬🎛️
+
+- Switch to the new chat view when you want to brainstorm narratives or vibes with Gemini
+- Capture curated theme tags and song suggestions, then turn the chat history into a ready-to-save Spotify playlist
+- Inject context on the fly by sharing your liked songs or loading an existing playlist so Gemini can riff on what you already love
+- Track every response step-by-step and keep collaborating until the mix feels perfect
+
+### 5. Bilingual UI & Instant Song Previews 🌍🎧
+
+- Toggle between English and Brazilian Portuguese with the inline language switcher—no reload required
+- Preview suggested tracks without leaving the page, complete with mini player controls and clear reasons when Spotify can’t provide a clip
+- Enjoy consistent copy updates across the app as you switch languages, including live status banners and tooltips
+
 ## How It Works
 
 1. Connect your Spotify account
@@ -86,6 +99,9 @@ Run `npm run setup` anytime to update values; the script will create/refresh you
 - Watch the **live status ticker** to follow each step and see track names stream in while Gemini curates your mix.
 - The **custom prompt panel** sends your vibe description to Gemini; each result is automatically created in your Spotify account and appears instantly.
 - Use the new **playlist picker** to quickly choose one of your Spotify playlists for enhancement, or paste a link/ID if you prefer manual control.
+- Tap the **Idea lounge** tab to hop into the chat workspace, capture tags, preview suggested songs, and transform the conversation into a playlist.
+- The **language switcher** in the corner keeps the entire UI in sync whether you prefer English or pt-BR.
+- Song suggestion cards now include mini players and preview availability hints so you know why a clip might be missing.
 - Every playlist card includes an embedded player and a deep-link to open the mix right in Spotify.
 
 ## Contributing
