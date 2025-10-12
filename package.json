@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "start": "node --loader ts-node/esm src/server.ts",
-    "dev": "npx nodemon --watch 'src/**/*.ts' --exec 'node --loader ts-node/esm' src/server.ts",
+  "dev": "npx nodemon --watch src --ext ts,json --exec \"node --loader ts-node/esm\" src/server.ts",
     "build": "tsc",
     "serve": "node dist/server.js",
     "setup": "node --loader ts-node/esm scripts/setup.ts"
