@@ -69,7 +69,7 @@ async function prompt(question: string, fallback?: string): Promise<string> {
 }
 
 async function runSetup() {
-  console.log("\n🔧 Claudify initial configuration\n");
+  console.log("\n🔧 Geminify initial configuration\n");
   console.log("Follow these steps before continuing:");
   console.log(
     "1. Spotify Developer Dashboard → https://developer.spotify.com/dashboard"

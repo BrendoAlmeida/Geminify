@@ -186,14 +186,14 @@ function registerSongSuggestionDebugTools() {
   });
 }
 
-const LOCALE_STORAGE_KEY = "claudify:locale";
+const LOCALE_STORAGE_KEY = "geminify:locale";
 const DEFAULT_LOCALE = "en";
 const SUPPORTED_LOCALES = ["en", "pt-BR"];
 
 const TRANSLATIONS = {
   en: {
     meta: {
-      title: "Claudify · AI Playlist Curator",
+  title: "Geminify · AI Playlist Curator",
     },
     lang: {
       selector: "Language selector",
@@ -520,7 +520,7 @@ const TRANSLATIONS = {
   },
   "pt-BR": {
     meta: {
-      title: "Claudify · Curador de playlists com IA",
+  title: "Geminify · Curador de playlists com IA",
     },
     lang: {
       selector: "Seletor de idioma",
@@ -1080,7 +1080,7 @@ registerLocaleSwitcher();
 initializeLocale();
 registerSongSuggestionDebugTools();
 
-const MODEL_STORAGE_KEY = "claudify:selectedGeminiModel";
+const MODEL_STORAGE_KEY = "geminify:selectedGeminiModel";
 let availableModels = [];
 let statusTimeouts = [];
 let tickerRevealInterval = null;
