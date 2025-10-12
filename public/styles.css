@@ -228,6 +228,14 @@ canvas#background {
   align-items: flex-start;
 }
 
+.chat-message__content {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  flex: 1 1 auto;
+  max-width: calc(100% - 52px);
+}
+
 .chat-message--user {
   flex-direction: row-reverse;
 }
@@ -284,6 +292,10 @@ canvas#background {
 
 .chat-message--user .chat-message__body {
   color: rgba(255, 255, 255, 0.8);
+}
+
+.chat-message--user .chat-message__content{
+  align-items: flex-end;
 }
 
 .chat-form {
@@ -738,6 +750,105 @@ body.modal-open {
 .tag-list[data-empty] {
   flex-direction: column;
   gap: 6px;
+}
+
+
+.chat-steps-inline {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  align-items: flex-start;
+  margin-bottom: 12px;
+}
+
+.chat-steps-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  border-radius: 999px;
+  background: rgba(8, 12, 28, 0.65);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  color: rgba(245, 248, 255, 0.85);
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0.01em;
+  transition: background var(--transition), border-color var(--transition), color var(--transition);
+}
+
+.chat-steps-toggle:hover,
+.chat-steps-toggle:focus {
+  background: rgba(20, 32, 58, 0.75);
+  border-color: rgba(255, 255, 255, 0.2);
+  color: rgba(245, 248, 255, 0.95);
+}
+
+.chat-steps-toggle__icon {
+  font-size: 0.9rem;
+  transform: rotate(180deg);
+  transition: transform var(--transition);
+}
+
+.chat-steps-toggle[aria-expanded="true"] .chat-steps-toggle__icon {
+  transform: rotate(0deg);
+}
+
+.chat-steps-toggle__label {
+  pointer-events: none;
+}
+
+.chat-steps-detail {
+  display: grid;
+  gap: 12px;
+  padding: 14px 16px;
+  border-radius: 16px;
+  background: rgba(8, 12, 28, 0.58);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  width: 100%;
+}
+
+.chat-steps-detail[hidden] {
+  display: none !important;
+}
+
+.chat-steps-detail__item {
+  display: grid;
+  gap: 6px;
+}
+
+.chat-steps-detail__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.chat-steps-detail__badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  background: rgba(54, 196, 255, 0.12);
+  color: rgba(90, 226, 255, 0.9);
+  font-size: 0.72rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.chat-steps-detail__badge-icon {
+  font-size: 0.8rem;
+}
+
+.chat-steps-detail__badge-label {
+  color: inherit;
+}
+
+.chat-steps-detail__body {
+  margin: 0;
+  color: rgba(245, 248, 255, 0.72);
+  font-size: 0.9rem;
+  white-space: pre-line;
 }
 
 

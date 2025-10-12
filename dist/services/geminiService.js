@@ -301,6 +301,433 @@ async function resolveChatSongSuggestions(songExamples) {
     }
     return suggestions;
 }
+function asStringArray(source, limit = 12) {
+    if (!Array.isArray(source)) {
+        return [];
+    }
+    const values = [];
+    const seen = new Set();
+    for (const entry of source) {
+        if (typeof entry !== "string") {
+            continue;
+        }
+        const trimmed = entry.trim();
+        if (!trimmed) {
+            continue;
+        }
+        const key = trimmed.toLowerCase();
+        if (seen.has(key)) {
+            continue;
+        }
+        seen.add(key);
+        values.push(trimmed);
+        if (values.length >= limit) {
+            break;
+        }
+    }
+    return values;
+}
+function normalizeQueryType(value) {
+    const normalized = value?.trim().toLowerCase();
+    switch (normalized) {
+        case "artist":
+        case "artists":
+            return "artist";
+        case "keyword":
+        case "theme":
+        case "topic":
+            return "keyword";
+        case "track":
+        case "song":
+        default:
+            return "track";
+    }
+}
+function normalizeAnalysisQueries(value) {
+    if (!value) {
+        return [];
+    }
+    const entries = [];
+    if (Array.isArray(value)) {
+        for (const item of value) {
+            if (!item || typeof item !== "object") {
+                continue;
+            }
+            const queryEntry = item;
+            const query = typeof queryEntry?.query === "string"
+                ? queryEntry.query.trim()
+                : "";
+            if (!query) {
+                continue;
+            }
+            const type = normalizeQueryType(queryEntry?.type);
+            const reason = typeof queryEntry?.reason === "string"
+                ? queryEntry.reason.trim()
+                : undefined;
+            entries.push({ type, query, reason });
+            if (entries.length >= 18) {
+                break;
+            }
+        }
+    }
+    return entries;
+}
+function normalizeAnalysisSongs(value) {
+    if (!value) {
+        return [];
+    }
+    const songs = [];
+    const pushSong = (title, artist) => {
+        if (!title.trim()) {
+            return;
+        }
+        songs.push({ title: title.trim(), artist: artist?.trim() || undefined });
+    };
+    if (Array.isArray(value)) {
+        for (const entry of value) {
+            if (!entry) {
+                continue;
+            }
+            if (typeof entry === "string") {
+                const parsed = parseSongExample(entry);
+                pushSong(parsed.title, parsed.artist);
+                if (songs.length >= 18) {
+                    break;
+                }
+                continue;
+            }
+            if (typeof entry === "object") {
+                const title = typeof entry.title === "string"
+                    ? entry.title
+                    : typeof entry.name === "string"
+                        ? entry.name
+                        : "";
+                const artist = typeof entry.artist === "string"
+                    ? entry.artist
+                    : typeof entry.artistName === "string"
+                        ? entry.artistName
+                        : typeof entry.artists === "string"
+                            ? entry.artists
+                            : Array.isArray(entry.artists)
+                                ? entry.artists[0]
+                                : undefined;
+                if (title) {
+                    pushSong(title, artist);
+                }
+                if (songs.length >= 18) {
+                    break;
+                }
+            }
+        }
+    }
+    return songs;
+}
+function normalizeAnalysisResponse(payload) {
+    const summary = typeof payload.summary === "string"
+        ? payload.summary.trim()
+        : "";
+    const themes = asStringArray(payload.themes ?? payload.keywords ?? payload.moods ?? payload.genres, 12);
+    const artistMentions = asStringArray(payload.artistMentions ?? payload.artists, 18);
+    const songMentions = normalizeAnalysisSongs(payload.songMentions ?? payload.songs);
+    const queries = normalizeAnalysisQueries(payload.spotifyQueries ?? payload.queries ?? payload.search);
+    const needsSpotifySearch = (() => {
+        const rawValue = payload.needsSpotifySearch ?? payload.shouldSearch;
+        if (typeof rawValue === "boolean") {
+            return rawValue;
+        }
+        if (typeof rawValue === "string") {
+            const normalized = rawValue.trim().toLowerCase();
+            return ["true", "yes", "y", "1", "search", "required"].includes(normalized);
+        }
+        return queries.length > 0 || songMentions.length > 0 || artistMentions.length > 0;
+    })();
+    return {
+        summary,
+        themes,
+        artistMentions,
+        songMentions,
+        queries,
+        needsSpotifySearch,
+    };
+}
+function buildChatAnalysisPrompt(messages, playlistContext) {
+    const latest = messages[messages.length - 1];
+    const conversation = messages
+        .slice(-MAX_CHAT_MESSAGES)
+        .map((message) => `${message.role === "assistant" ? "Assistant" : "User"}: ${message.content}`)
+        .join("\n");
+    let playlistSection = "";
+    if (playlistContext) {
+        const { name, description, songs } = playlistContext;
+        const lines = [
+            `Playlist alvo: ${name}`,
+        ];
+        if (description) {
+            lines.push(`Descrição: ${description}`);
+        }
+        if (Array.isArray(songs) && songs.length) {
+            const highlights = songs
+                .slice(0, 20)
+                .map((song) => `- ${song.title} — ${song.artist}`)
+                .join("\n");
+            if (highlights) {
+                lines.push("Faixas destacadas:");
+                lines.push(highlights);
+            }
+        }
+        playlistSection = `${lines.join("\n")}\n\n`;
+    }
+    const latestContent = latest?.content ?? "";
+    return `Você é um analista musical que prepara uma pesquisa antes do chatbot responder ao usuário.
+
+${playlistSection}Conversa recente:
+${conversation}
+
+Sua tarefa é analisar a mensagem mais recente do usuário e planejar uma pesquisa no Spotify.
+Responda somente com um JSON contendo estes campos:
+{
+  "summary": "Resumo em uma ou duas frases do que o usuário deseja",
+  "themes": ["lista de temas/moods"],
+  "artistMentions": ["nomes de artistas citados ou implícitos"],
+  "songMentions": [
+    { "title": "Título da faixa", "artist": "Artista se conhecido" }
+  ],
+  "spotifyQueries": [
+    { "type": "track|artist|keyword", "query": "texto da busca", "reason": "por que pesquisar" }
+  ],
+  "needsSpotifySearch": true ou false
+}
+
+Regras:
+- Reflita apenas sobre a mensagem do usuário e o contexto fornecido.
+- Converta qualquer referência a música em um objeto com título e artista quando possível.
+- Sugira buscas adicionais com base em temas se elas ajudarem a responder melhor.
+- Prefira português para campos de texto.
+- Use arrays vazios [] quando não houver dados.
+
+Mensagem mais recente do usuário:
+"""${latestContent}"""`;
+}
+async function analyzeChatIntent(messages, modelName, playlistContext) {
+    if (!messages.length) {
+        return undefined;
+    }
+    const prompt = buildChatAnalysisPrompt(messages, playlistContext);
+    try {
+        const analysisPayload = await generateGeminiJson(prompt, modelName);
+        return normalizeAnalysisResponse(analysisPayload ?? {});
+    }
+    catch (error) {
+        log(`Failed to analyze chat intent: ${error instanceof Error ? error.message : String(error)}`);
+        return undefined;
+    }
+}
+function buildSongExampleFromAnalysis(song) {
+    if (!song.title.trim()) {
+        return "";
+    }
+    return song.artist ? `${song.title} — ${song.artist}` : song.title;
+}
+async function searchSpotifyForArtist(artist, options = {}) {
+    const limit = options.limit ?? 20;
+    const retries = options.retries ?? 2;
+    let attempt = 0;
+    while (attempt <= retries) {
+        try {
+            const response = await spotifyApi.searchTracks(`artist:${artist}`, { limit });
+            const items = response.body.tracks?.items ?? [];
+            if (!items.length) {
+                return null;
+            }
+            return items.find((track) => track?.preview_url) ?? items[0];
+        }
+        catch (error) {
+            if (error?.statusCode === 429 && attempt < retries) {
+                await sleep(320 * (attempt + 1));
+                attempt += 1;
+                continue;
+            }
+            log(`Spotify artist search error for "${artist}": ${formatSpotifyError(error)}`);
+            return null;
+        }
+    }
+    return null;
+}
+async function searchSpotifyForKeyword(keyword, options = {}) {
+    const limit = options.limit ?? 20;
+    const retries = options.retries ?? 2;
+    let attempt = 0;
+    while (attempt <= retries) {
+        try {
+            const response = await spotifyApi.searchTracks(keyword, { limit });
+            const items = response.body.tracks?.items ?? [];
+            if (!items.length) {
+                return null;
+            }
+            return items.find((track) => track?.preview_url) ?? items[0];
+        }
+        catch (error) {
+            if (error?.statusCode === 429 && attempt < retries) {
+                await sleep(320 * (attempt + 1));
+                attempt += 1;
+                continue;
+            }
+            log(`Spotify keyword search error for "${keyword}": ${formatSpotifyError(error)}`);
+            return null;
+        }
+    }
+    return null;
+}
+async function performSpotifyResearch(analysis) {
+    const items = [];
+    const aggregated = [];
+    const seen = new Set();
+    const appendSuggestion = async (suggestion) => {
+        if (!suggestion) {
+            return;
+        }
+        await ensureSuggestionPreview(suggestion, {
+            title: suggestion.title,
+            artist: suggestion.artist,
+        });
+        const key = suggestion.id || `${suggestion.title}:${suggestion.artist}`;
+        if (seen.has(key)) {
+            return;
+        }
+        seen.add(key);
+        aggregated.push(suggestion);
+    };
+    const collectFromTrack = async (parsed, sourceLabel) => {
+        const example = parsed.artist ? `${parsed.title} — ${parsed.artist}` : parsed.title;
+        try {
+            const track = await findBestTrackForSuggestion(parsed, example);
+            if (track) {
+                const suggestion = mapTrackToSuggestion(track, parsed, aggregated.length);
+                await appendSuggestion(suggestion);
+                items.push({
+                    type: "track",
+                    query: example,
+                    reason: sourceLabel,
+                    suggestions: suggestion ? [suggestion] : [],
+                });
+                return;
+            }
+        }
+        catch (error) {
+            log(`Spotify track search failed for analysis song "${example}": ${formatSpotifyError(error)}`);
+        }
+        const fallback = buildFallbackSuggestion(parsed, example, aggregated.length, { reason: "no_preview" });
+        await appendSuggestion(fallback);
+        items.push({
+            type: "track",
+            query: example,
+            reason: sourceLabel,
+            suggestions: fallback ? [fallback] : [],
+        });
+    };
+    try {
+        await refreshTokenIfNeeded();
+    }
+    catch (error) {
+        const reason = error instanceof MissingTokenError ? "auth_required" : "no_preview";
+        log(`Spotify auth not available for research: ${formatSpotifyError(error)}`);
+        const fallbacks = analysis.songMentions.map((song, index) => buildFallbackSuggestion(parseSongExample(buildSongExampleFromAnalysis(song)), buildSongExampleFromAnalysis(song), index, { reason }));
+        fallbacks.forEach((suggestion) => {
+            if (suggestion) {
+                aggregated.push(suggestion);
+            }
+        });
+        return {
+            performed: false,
+            items: analysis.songMentions.length
+                ? analysis.songMentions.map((song) => ({
+                    type: "track",
+                    query: buildSongExampleFromAnalysis(song),
+                    reason: "Sem token do Spotify, usando fallback",
+                    suggestions: [],
+                }))
+                : [],
+            suggestions: aggregated,
+        };
+    }
+    for (const song of analysis.songMentions) {
+        if (!song?.title) {
+            continue;
+        }
+        const parsed = parseSongExample(buildSongExampleFromAnalysis(song));
+        await collectFromTrack(parsed, "Música mencionada pelo usuário");
+        if (aggregated.length >= 18) {
+            break;
+        }
+        await sleep(110);
+    }
+    for (const query of analysis.queries) {
+        const reason = query.reason?.trim() || undefined;
+        try {
+            let suggestion = null;
+            if (query.type === "artist") {
+                const track = await searchSpotifyForArtist(query.query);
+                if (track) {
+                    suggestion = mapTrackToSuggestion(track, {
+                        title: track.name ?? query.query,
+                        artist: track.artists?.[0]?.name ?? query.query,
+                    }, aggregated.length);
+                }
+            }
+            else if (query.type === "keyword") {
+                const track = await searchSpotifyForKeyword(query.query);
+                if (track) {
+                    suggestion = mapTrackToSuggestion(track, {
+                        title: track.name ?? query.query,
+                        artist: track.artists?.[0]?.name ?? "",
+                    }, aggregated.length);
+                }
+            }
+            else {
+                const parsed = parseSongExample(query.query);
+                const track = await findBestTrackForSuggestion(parsed, query.query);
+                if (track) {
+                    suggestion = mapTrackToSuggestion(track, parsed, aggregated.length);
+                }
+            }
+            if (suggestion) {
+                await appendSuggestion(suggestion);
+                items.push({
+                    type: query.type,
+                    query: query.query,
+                    reason,
+                    suggestions: [suggestion],
+                });
+            }
+            else {
+                items.push({
+                    type: query.type,
+                    query: query.query,
+                    reason,
+                    suggestions: [],
+                });
+            }
+        }
+        catch (error) {
+            log(`Spotify research error for "${query.query}": ${formatSpotifyError(error)}`);
+            items.push({
+                type: query.type,
+                query: query.query,
+                reason,
+                suggestions: [],
+            });
+        }
+        if (aggregated.length >= 18) {
+            break;
+        }
+        await sleep(110);
+    }
+    return {
+        performed: analysis.needsSpotifySearch && aggregated.length > 0,
+        items,
+        suggestions: aggregated.slice(0, 18),
+    };
+}
 export function sanitizeChatPlaylistContext(raw) {
     if (!raw || typeof raw !== "object") {
         return undefined;
@@ -377,7 +804,7 @@ export function normalizeChatMessages(rawMessages) {
     }
     return normalized.slice(-MAX_CHAT_MESSAGES);
 }
-export function buildChatPrompt(messages, playlistContext) {
+export function buildChatPrompt(messages, playlistContext, analysis, research) {
     const transcript = messages
         .map((message) => `${message.role === "assistant" ? "Assistant" : "User"}: ${message.content}`)
         .join("\n");
@@ -402,6 +829,63 @@ export function buildChatPrompt(messages, playlistContext) {
         }
         playlistSection = `${details.join("\n")}\n`;
     }
+    let analysisSection = "";
+    if (analysis) {
+        const lines = [];
+        if (analysis.summary) {
+            lines.push(`Resumo: ${analysis.summary}`);
+        }
+        if (analysis.themes.length) {
+            lines.push(`Temas detectados: ${analysis.themes.slice(0, 8).join(", ")}`);
+        }
+        if (analysis.artistMentions.length) {
+            lines.push(`Artistas mencionados: ${analysis.artistMentions.slice(0, 10).join(", ")}`);
+        }
+        if (analysis.songMentions.length) {
+            const songs = analysis.songMentions
+                .slice(0, 10)
+                .map((song) => (song.artist ? `${song.title} — ${song.artist}` : song.title))
+                .join(", ");
+            lines.push(`Faixas citadas: ${songs}`);
+        }
+        if (analysis.queries.length) {
+            const queryLines = analysis.queries
+                .slice(0, 8)
+                .map((entry) => `• ${entry.type}: ${entry.query}${entry.reason ? ` (${entry.reason})` : ""}`)
+                .join("\n");
+            if (queryLines) {
+                lines.push("Sugestões de busca:");
+                lines.push(queryLines);
+            }
+        }
+        if (lines.length) {
+            analysisSection = `\nInsights da análise:\n${lines.join("\n")}\n`;
+        }
+    }
+    let researchSection = "";
+    if (research && research.suggestions.length) {
+        const songLines = research.suggestions
+            .slice(0, 12)
+            .map((song) => `- ${song.title}${song.artist ? ` — ${song.artist}` : ""}`)
+            .join("\n");
+        const querySummary = research.items
+            .filter((item) => item.suggestions.length)
+            .slice(0, 6)
+            .map((item) => `• ${item.type}: ${item.query}`)
+            .join("\n");
+        const sections = [];
+        if (songLines) {
+            sections.push("Resultados do Spotify (priorize estas faixas):");
+            sections.push(songLines);
+        }
+        if (querySummary) {
+            sections.push("Consultas executadas:");
+            sections.push(querySummary);
+        }
+        if (sections.length) {
+            researchSection = `\nPesquisa no Spotify já realizada:\n${sections.join("\n")}\n`;
+        }
+    }
     return `You are Geminify's playlist ideation assistant. Your task is to help users shape playlist ideas, moods, storylines, and track inspirations.
 
 Prioritize inspiring the user with concrete artist and track ideas whenever it adds value. Spotlight a mix of familiar and fresh names that fit the user's vibe.
@@ -409,6 +893,8 @@ Prioritize inspiring the user with concrete artist and track ideas whenever it a
 ${playlistContext
         ? `The user wants to enhance the Spotify playlist described below. Respect what already works and suggest thoughtful evolutions.${playlistSection}\n`
         : ""}
+
+${analysisSection}${researchSection}
 
 Conversation so far:
 ${transcript}
@@ -434,16 +920,26 @@ export async function generateChatSuggestion(messages, modelName, playlistContex
     if (!messages.length) {
         throw new Error("Chat messages are required");
     }
-    const prompt = buildChatPrompt(messages, playlistContext);
+    const latestUserMessage = messages[messages.length - 1]?.content ?? "";
+    const analysis = await analyzeChatIntent(messages, modelName, playlistContext);
+    const researchResult = analysis ? await performSpotifyResearch(analysis) : undefined;
+    const prompt = buildChatPrompt(messages, playlistContext, analysis, researchResult);
     const response = await generateGeminiJson(prompt, modelName);
     const reply = typeof response.reply === "string" ? response.reply.trim() : "";
     if (!reply) {
         throw new Error("Gemini response did not contain a reply");
     }
-    const themeTags = sanitizeStringArray(response.themeTags ?? response.tags);
-    const songExamples = sanitizeStringArray(response.songExamples ?? response.songTags, 12);
-    let songSuggestions = [];
-    if (songExamples.length) {
+    const responseThemeTags = sanitizeStringArray(response.themeTags ?? response.tags);
+    const analysisThemes = analysis?.themes ?? [];
+    const mergedThemes = sanitizeStringArray([...analysisThemes, ...responseThemeTags]);
+    const modelSongExamples = sanitizeStringArray(response.songExamples ?? response.songTags, 12);
+    let songSuggestions = researchResult?.suggestions
+        ? researchResult.suggestions.slice(0, 12)
+        : [];
+    let songExamples = songSuggestions.length
+        ? songSuggestions.map((suggestion) => suggestion.artist ? `${suggestion.title} — ${suggestion.artist}` : suggestion.title)
+        : modelSongExamples;
+    if (!songSuggestions.length && songExamples.length) {
         try {
             songSuggestions = await resolveChatSongSuggestions(songExamples);
         }
@@ -452,7 +948,109 @@ export async function generateChatSuggestion(messages, modelName, playlistContex
             songSuggestions = songExamples.map((example, index) => buildFallbackSuggestion(parseSongExample(example), example, index, { reason: "error" }));
         }
     }
-    return { reply, themeTags, songExamples, songSuggestions };
+    if (!songExamples.length && songSuggestions.length) {
+        songExamples = songSuggestions.map((suggestion) => suggestion.artist ? `${suggestion.title} — ${suggestion.artist}` : suggestion.title);
+    }
+    const steps = [];
+    if (latestUserMessage) {
+        steps.push({
+            key: "user_input",
+            title: "1. Texto do usuário",
+            detail: latestUserMessage.slice(0, 600),
+        });
+    }
+    if (analysis) {
+        const analysisDetails = [];
+        if (analysis.summary) {
+            analysisDetails.push(`Resumo: ${analysis.summary}`);
+        }
+        if (analysis.themes.length) {
+            analysisDetails.push(`Temas: ${analysis.themes.slice(0, 6).join(", ")}`);
+        }
+        if (analysis.artistMentions.length) {
+            analysisDetails.push(`Artistas: ${analysis.artistMentions.slice(0, 6).join(", ")}`);
+        }
+        if (analysis.songMentions.length) {
+            const songs = analysis.songMentions
+                .slice(0, 4)
+                .map((song) => (song.artist ? `${song.title} — ${song.artist}` : song.title));
+            analysisDetails.push(`Faixas citadas: ${songs.join(", ")}`);
+        }
+        if (analysis.queries.length) {
+            analysisDetails.push(`Buscas sugeridas: ${analysis.queries
+                .slice(0, 4)
+                .map((item) => item.query)
+                .join(", ")}`);
+        }
+        steps.push({
+            key: "analysis",
+            title: "2. Análise do pedido",
+            detail: analysisDetails.join("\n"),
+        });
+    }
+    else {
+        steps.push({
+            key: "analysis",
+            title: "2. Análise do pedido",
+            detail: "Não foi possível gerar a análise automática desta vez.",
+        });
+    }
+    const researchForSteps = researchResult ?? {
+        performed: false,
+        items: [],
+        suggestions: [],
+    };
+    const detailParts = [];
+    if (researchForSteps.items.length) {
+        const executed = researchForSteps.items
+            .filter((item) => item.suggestions.length)
+            .map((item) => `${item.type}: ${item.query}`)
+            .slice(0, 5);
+        if (executed.length) {
+            detailParts.push(`Consultas executadas: ${executed.join(", ")}`);
+        }
+    }
+    if (songSuggestions.length) {
+        detailParts.push(`Músicas encontradas: ${songSuggestions
+            .slice(0, 5)
+            .map((song) => (song.artist ? `${song.title} — ${song.artist}` : song.title))
+            .join(", ")}`);
+    }
+    if (!detailParts.length) {
+        detailParts.push(analysis
+            ? "Pesquisa no Spotify ainda não trouxe resultados úteis."
+            : "Pesquisa não executada porque a análise falhou.");
+    }
+    steps.push({
+        key: "spotify_search",
+        title: "3. Pesquisa no Spotify",
+        detail: detailParts.join("\n"),
+    });
+    const finalizeDetails = [];
+    if (mergedThemes.length) {
+        finalizeDetails.push(`Tags adicionadas: ${mergedThemes.slice(0, 6).join(", ")}`);
+    }
+    if (songSuggestions.length) {
+        finalizeDetails.push(`Sugestões de música: ${songSuggestions
+            .slice(0, 5)
+            .map((song) => (song.artist ? `${song.title} — ${song.artist}` : song.title))
+            .join(", ")}`);
+    }
+    finalizeDetails.push("Resposta pronta para continuar a conversa.");
+    steps.push({
+        key: "finalize",
+        title: "4. Concluido",
+        detail: finalizeDetails.join("\n"),
+    });
+    return {
+        reply,
+        themeTags: mergedThemes,
+        songExamples,
+        songSuggestions,
+        analysis,
+        spotifyResearch: researchResult,
+        steps,
+    };
 }
 export async function generateCustomPlaylistWithGemini(userPrompt, modelName) {
     log("Generating custom playlist with Gemini");

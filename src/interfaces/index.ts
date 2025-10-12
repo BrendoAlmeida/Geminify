@@ -57,6 +57,53 @@ export interface GeminiChatResponse {
   songTags?: string[];
 }
 
+export type ChatSpotifyQueryType = "track" | "artist" | "keyword";
+
+export interface ChatSpotifyQuery {
+  type: ChatSpotifyQueryType;
+  query: string;
+  reason?: string;
+}
+
+export interface ChatAnalysisSong {
+  title: string;
+  artist?: string;
+}
+
+export interface ChatAnalysisResult {
+  summary: string;
+  themes: string[];
+  artistMentions: string[];
+  songMentions: ChatAnalysisSong[];
+  queries: ChatSpotifyQuery[];
+  needsSpotifySearch: boolean;
+}
+
+export interface ChatSpotifyResearchItem {
+  type: ChatSpotifyQueryType;
+  query: string;
+  reason?: string;
+  suggestions: ChatSongSuggestion[];
+}
+
+export interface ChatSpotifyResearchResult {
+  performed: boolean;
+  items: ChatSpotifyResearchItem[];
+  suggestions: ChatSongSuggestion[];
+}
+
+export type ChatSuggestionStepKey =
+  | "user_input"
+  | "analysis"
+  | "spotify_search"
+  | "finalize";
+
+export interface ChatSuggestionStep {
+  key: ChatSuggestionStepKey;
+  title: string;
+  detail?: string;
+}
+
 export interface ChatPlaylistContext {
   id: string;
   name: string;
@@ -109,4 +156,7 @@ export interface GenerateChatSuggestionResult {
   themeTags: string[];
   songExamples: string[];
   songSuggestions: ChatSongSuggestion[];
+  analysis?: ChatAnalysisResult;
+  spotifyResearch?: ChatSpotifyResearchResult;
+  steps?: ChatSuggestionStep[];
 }

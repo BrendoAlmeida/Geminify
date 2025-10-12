@@ -304,6 +304,15 @@ const TRANSLATIONS = {
         description:
           "Share the mood, references, or stories you want to translate into music. Gemini replies with insights and optional tags to power up your playlist.",
       },
+      steps: {
+        toggle: "View response steps",
+        item: "Step",
+        status: {
+          analysis: "Analyzing the request…",
+          spotify_search: "Searching Spotify…",
+          finalize: "Finalizing response…",
+        },
+      },
       initialMessage:
         "Hey! Tell me the vibe, context, or inspiration you're exploring and I'll bring ideas, potential tags, and song examples.",
       form: {
@@ -621,6 +630,15 @@ const TRANSLATIONS = {
         title: "Converse com o Geminify",
         description:
           "Compartilhe o clima, referências ou histórias que quer transformar em música. O Gemini responde com ideias e tags opcionais para turbinar sua playlist.",
+      },
+      steps: {
+        toggle: "Ver etapas da resposta",
+        item: "Etapa",
+        status: {
+          analysis: "Analisando o pedido…",
+          spotify_search: "Pesquisando no Spotify…",
+          finalize: "Finalizando a resposta…",
+        },
       },
       initialMessage:
         "Oi! Conte o clima, contexto ou inspiração que você quer explorar e eu trago ideias, tags e exemplos de músicas.",
@@ -1108,6 +1126,7 @@ const chatState = {
   messages: [{ role: "assistant", content: initialAssistantMessage }],
   themeTags: [],
   songSuggestions: [],
+  chatSteps: [],
   playlistContext: null,
   didSendPlaylistContext: false,
   likedSongs: [],
@@ -1191,6 +1210,22 @@ const placeholderSongs = [
   "Photon Avenue — Glasshouse",
   "Cascade Memoirs — Aurora City",
 ];
+
+const CHAT_STEP_ICONS = {
+  "user_input": "📝",
+  "analysis": "🧠",
+  "spotify_search": "🔎",
+  "finalize": "✨",
+};
+
+const STEP_STATUS_FALLBACK = {
+  analysis: "Analyzing the request…",
+  spotify_search: "Searching Spotify…",
+  finalize: "Finalizing the response…",
+};
+
+const CHAT_STEP_SEQUENCE = ["analysis", "spotify_search", "finalize"];
+let chatStepStatusTimers = [];
 
 function getLoadingSequence(type) {
   return tList(`loading.${type}`);
@@ -2037,7 +2072,7 @@ function switchView(target) {
   });
 }
 
-function appendChatMessage(role, content) {
+function appendChatMessage(role, content, options = {}) {
   if (!chatLog) return;
   const trimmed = typeof content === "string" ? content.trim() : "";
   if (!trimmed) return;
@@ -2071,7 +2106,19 @@ function appendChatMessage(role, content) {
   });
 
   bubble.append(sender, body);
-  wrapper.append(avatar, bubble);
+  const steps = role === "assistant" && Array.isArray(options.steps) ? options.steps : [];
+  const stepsToggle = role === "assistant" ? createChatStepsToggle(steps) : null;
+
+  const messageContent = document.createElement("div");
+  messageContent.className = "chat-message__content";
+
+  if (stepsToggle) {
+    messageContent.append(stepsToggle);
+  }
+
+  messageContent.append(bubble);
+
+  wrapper.append(avatar, messageContent);
   chatLog.append(wrapper);
   chatLog.scrollTo({
     top: chatLog.scrollHeight,
@@ -2141,6 +2188,153 @@ function renderTagGroup(container, tags, group, emptyMessageKey) {
     button.append(label, close);
     container.append(button);
   });
+}
+
+function createChatStepsToggle(steps) {
+  const validSteps = Array.isArray(steps) ? steps.filter(Boolean) : [];
+  if (!validSteps.length) {
+    return null;
+  }
+
+  const container = document.createElement("div");
+  container.className = "chat-steps-inline";
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "chat-steps-toggle";
+  button.setAttribute("aria-expanded", "false");
+
+  const icon = document.createElement("span");
+  icon.className = "chat-steps-toggle__icon";
+  icon.textContent = "^";
+
+  const label = document.createElement("span");
+  label.className = "chat-steps-toggle__label";
+  label.textContent = t("chat.steps.toggle", {}, {
+    fallback: "Ver etapas da resposta",
+  });
+
+  button.append(icon, label);
+
+  const detail = document.createElement("div");
+  detail.className = "chat-steps-detail";
+  detail.hidden = true;
+
+  validSteps.forEach((step) => {
+    if (!step) return;
+
+    const item = document.createElement("div");
+    item.className = "chat-steps-detail__item";
+
+    const header = document.createElement("div");
+    header.className = "chat-steps-detail__header";
+
+    const badge = document.createElement("span");
+    badge.className = "chat-steps-detail__badge";
+
+    const badgeIcon = document.createElement("span");
+    badgeIcon.className = "chat-steps-detail__badge-icon";
+    badgeIcon.textContent = CHAT_STEP_ICONS[step.key] || "•";
+
+    const badgeLabel = document.createElement("span");
+    badgeLabel.className = "chat-steps-detail__badge-label";
+    badgeLabel.textContent = typeof step.title === "string" && step.title.trim()
+      ? step.title.trim()
+      : t("chat.steps.item", {}, { fallback: "Etapa" });
+
+    badge.append(badgeIcon, badgeLabel);
+    header.append(badge);
+    item.append(header);
+
+    const detailText = typeof step.detail === "string" ? step.detail.trim() : "";
+    if (detailText) {
+      const body = document.createElement("p");
+      body.className = "chat-steps-detail__body";
+      body.textContent = detailText;
+      item.append(body);
+    }
+
+    detail.append(item);
+  });
+
+  container.append(button, detail);
+
+  const toggleDetail = () => {
+    const expanded = button.getAttribute("aria-expanded") === "true";
+    button.setAttribute("aria-expanded", String(!expanded));
+    detail.hidden = expanded;
+  };
+
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    toggleDetail();
+  });
+
+  return container;
+}
+
+function getStepStatusMessage(stepKey, steps) {
+  if (Array.isArray(steps)) {
+    const match = steps.find((step) => step?.key === stepKey && typeof step.title === "string");
+    if (match) {
+      return match.title.trim();
+    }
+  }
+
+  const fallback = STEP_STATUS_FALLBACK[stepKey] || "";
+  return t(`chat.steps.status.${stepKey}`, {}, { fallback }) || fallback;
+}
+
+function hasChatStep(key, steps) {
+  if (!Array.isArray(steps)) {
+    return false;
+  }
+  return steps.some((step) => step?.key === key);
+}
+
+function clearChatStepProgression() {
+  if (chatStepStatusTimers.length) {
+    chatStepStatusTimers.forEach((timerId) => clearTimeout(timerId));
+    chatStepStatusTimers = [];
+  }
+}
+
+function beginChatStepProgression() {
+  clearChatStepProgression();
+  setChatStatus(getStepStatusMessage("analysis"), "");
+}
+
+function advanceChatStepProgression(steps) {
+  clearChatStepProgression();
+  let delay = 0;
+
+  CHAT_STEP_SEQUENCE.forEach((key) => {
+    if (key !== "analysis" && !hasChatStep(key, steps)) {
+      return;
+    }
+
+    const message = getStepStatusMessage(key, steps);
+    const type = key === "finalize" ? "success" : "";
+    const timer = setTimeout(() => {
+      setChatStatus(message, type);
+    }, delay);
+
+    chatStepStatusTimers.push(timer);
+    delay += key === "finalize" ? 0 : 420;
+  });
+
+  if (!hasChatStep("finalize", steps)) {
+    const message = getStepStatusMessage("finalize", steps);
+    const timer = setTimeout(() => {
+      setChatStatus(message, "success");
+    }, delay || 0);
+    chatStepStatusTimers.push(timer);
+  }
+}
+
+function failChatStepProgression(message) {
+  clearChatStepProgression();
+  setChatStatus(message, "error");
 }
 
 function updatePreviewButtonDisplay(button, isPlaying) {
@@ -3518,6 +3712,7 @@ function resetChat() {
   chatState.messages = [{ role: "assistant", content: initialAssistantMessage }];
   chatState.themeTags = [];
   chatState.songSuggestions = [];
+  chatState.chatSteps = [];
   chatState.didSendPlaylistContext = false;
   chatState.likedSongs = [];
   chatState.playlistSummaryPostedId = null;
@@ -3590,7 +3785,7 @@ async function handleChatSubmit(event) {
   chatState.messages.push({ role: "user", content: message });
   appendChatMessage("user", message);
   chatInput.value = "";
-  setChatStatus(t("Checking with Gemini…"), "");
+  beginChatStepProgression();
 
   if (chatSendButton) {
     chatSendButton.disabled = true;
@@ -3600,15 +3795,11 @@ async function handleChatSubmit(event) {
   try {
     const recentMessages = chatState.messages.slice(-MAX_CHAT_HISTORY);
     const selectedModel = getSelectedModel();
+    chatState.chatSteps = [];
     const payload = await requestChatResponse(recentMessages, selectedModel, {
       playlist: playlistContext || undefined,
     });
     const reply = typeof payload.reply === "string" ? payload.reply.trim() : "";
-
-    if (reply) {
-      chatState.messages.push({ role: "assistant", content: reply });
-      appendChatMessage("assistant", reply);
-    }
 
     if (playlistContext) {
       chatState.didSendPlaylistContext = true;
@@ -3643,16 +3834,17 @@ async function handleChatSubmit(event) {
       );
     }
 
+    chatState.chatSteps = Array.isArray(payload.steps) ? payload.steps : [];
+
     renderTagGroup(themeTagList, chatState.themeTags, "theme", "chat.tags.emptyTheme");
     renderSongSuggestions();
 
     if (reply) {
-      setChatStatus(t("Reply received!"), "success");
-    } else if (!incomingThemes.length && !combinedSongSuggestions.length) {
-      setChatStatus(t("Conversation refreshed, no new tags this time."), "");
-    } else {
-      setChatStatus(t("Tags updated!"), "success");
+      chatState.messages.push({ role: "assistant", content: reply });
+      appendChatMessage("assistant", reply, { steps: chatState.chatSteps });
     }
+
+    advanceChatStepProgression(chatState.chatSteps);
   } catch (error) {
     console.error("Chat error", error);
     const fallback = t("We couldn’t chat with the model right now.");
@@ -3660,7 +3852,7 @@ async function handleChatSubmit(event) {
       typeof error?.message === "string"
         ? t(error.message, {}, { fallback: error.message })
         : fallback;
-    setChatStatus(message || fallback, "error");
+    failChatStepProgression(message || fallback);
   } finally {
     if (chatSendButton) {
       chatSendButton.disabled = false;
@@ -5075,28 +5267,59 @@ if (sendLikedSongsButton) {
         : null;
 
       try {
-        setChatStatus(t('Checking with Gemini…'), '');
+  beginChatStepProgression();
         const recentMessages = chatState.messages.slice(-MAX_CHAT_HISTORY);
         const selectedModel = getSelectedModel();
+        chatState.chatSteps = [];
         const payload = await requestChatResponse(recentMessages, selectedModel, {
           playlist: playlistContext || undefined,
         });
 
         const reply = typeof payload?.reply === 'string' ? payload.reply.trim() : '';
+
+        const incomingThemes = Array.isArray(payload?.themeTags)
+          ? payload.themeTags
+          : Array.isArray(payload?.tags)
+          ? payload.tags
+          : [];
+        const incomingSongLabels = Array.isArray(payload?.songExamples)
+          ? payload.songExamples
+          : Array.isArray(payload?.songTags)
+          ? payload.songTags
+          : [];
+        const structuredSuggestions = Array.isArray(payload?.songSuggestions)
+          ? payload.songSuggestions
+          : [];
+        const combinedSongSuggestions = structuredSuggestions.length
+          ? structuredSuggestions
+          : incomingSongLabels;
+
+        if (incomingThemes.length) {
+          chatState.themeTags = mergeTags(chatState.themeTags, incomingThemes);
+        }
+
+        if (combinedSongSuggestions.length) {
+          chatState.songSuggestions = mergeSongSuggestions(
+            chatState.songSuggestions,
+            combinedSongSuggestions
+          );
+        }
+
+        chatState.chatSteps = Array.isArray(payload?.steps) ? payload.steps : [];
+
+        renderTagGroup(themeTagList, chatState.themeTags, 'theme', 'chat.tags.emptyTheme');
+        renderSongSuggestions();
+
         if (reply) {
           chatState.messages.push({ role: 'assistant', content: reply });
-          appendChatMessage('assistant', reply);
+          appendChatMessage('assistant', reply, { steps: chatState.chatSteps });
         }
 
         if (playlistContext) {
           chatState.didSendPlaylistContext = true;
           updateChatPlaylistHint();
         }
-        if (reply) {
-          setChatStatus(t('Reply received!'), 'success');
-        } else {
-          setChatStatus(t('Conversation refreshed, no new tags this time.'), '');
-        }
+        advanceChatStepProgression(chatState.chatSteps);
       } catch (error) {
         console.error('Chat follow-up error', error);
         const fallback = t('We couldn’t chat with the model right now.');
@@ -5104,7 +5327,7 @@ if (sendLikedSongsButton) {
           typeof error?.message === 'string'
             ? t(error.message, {}, { fallback: error.message })
             : fallback;
-        setChatStatus(message || fallback, 'error');
+  failChatStepProgression(message || fallback);
       }
     } catch (error) {
       console.error('Send liked songs error', error);
