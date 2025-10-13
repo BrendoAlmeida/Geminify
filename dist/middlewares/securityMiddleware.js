@@ -31,6 +31,7 @@ export const helmetMiddleware = helmet({
             fontSrc: ["'self'", "https://fonts.gstatic.com"],
             scriptSrc: ["'self'"],
             imgSrc: ["'self'", "data:", "https:"],
+            mediaSrc: ["'self'", "https://p.scdn.co", "https://*.scdn.co"],
             connectSrc: ["'self'", "https://api.spotify.com", "https://accounts.spotify.com"],
         },
     },

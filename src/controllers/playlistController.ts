@@ -21,6 +21,7 @@ import { spotifyApi } from "../services/spotifyClient";
 import { sleep } from "../utils/sleep";
 import { clearTokenFile, createUserSpotifyApi } from "../services/spotifyAuthService";
 import { PlaylistPreview, UnresolvedTrackSelection } from "../interfaces";
+import SpotifyWebApi from "spotify-web-api-node";
 
 const playlistController = Router();
 
@@ -134,6 +135,7 @@ function sanitizeSelectedSongs(raw: unknown): SelectedSongInput[] {
 }
 
 async function collectPlaylistTrackUris(
+	userSpotifyApi: SpotifyWebApi,
 	playlistId: string,
 	initialPlaylist?: SpotifyApi.PlaylistObjectFull | null
 ): Promise<Set<string>> {
@@ -169,7 +171,7 @@ async function collectPlaylistTrackUris(
 
 	while (true) {
 		const response = await requestQueue.add(() =>
-			spotifyApi.getPlaylistTracks(playlistId, {
+			userSpotifyApi.getPlaylistTracks(playlistId, {
 				offset,
 				limit,
 			})
@@ -831,6 +833,7 @@ playlistController.post("/create-custom-playlist", async (req, res) => {
 
 		if (targetPlaylistId && existingPlaylist) {
 			const existingTrackUris = await collectPlaylistTrackUris(
+				userSpotifyApi,
 				targetPlaylistId,
 				existingPlaylist
 			);

@@ -327,9 +327,12 @@
       </footer>
     </div>
 
+    <!-- Modal: Playlist Context Selection -->
     <div class="modal" id="chatPlaylistModal" hidden aria-hidden="true">
       <div class="modal__backdrop" data-modal-close></div>
-  <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="chatPlaylistModalTitle" tabindex="-1">
+      
+      <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="chatPlaylistModalTitle" tabindex="-1">
+        <!-- Close Button -->
         <button
           type="button"
           class="modal__close"
@@ -339,53 +342,80 @@
         >
           ×
         </button>
-        <div class="modal__header">
+
+        <!-- Header -->
+        <header class="modal__header">
           <h2 class="modal__title" id="chatPlaylistModalTitle" data-i18n="chat.playlistModal.title">
             Atualizar playlist com contexto
           </h2>
           <p class="modal__description" data-i18n="chat.playlistModal.description">
             Escolha uma playlist existente para enviar o contexto e receber sugestões focadas nela.
           </p>
-        </div>
-        <div class="modal__body">
-          <label class="chat-playlist-picker__label" for="chatPlaylistSelect" data-i18n="chat.playlistContext.label">
-            Enhance an existing playlist (optional)
-          </label>
-          <div class="chat-playlist-picker__controls modal__controls">
-            <select
-              id="chatPlaylistSelect"
-              class="chat-playlist-picker__select"
-              aria-describedby="chatPlaylistHint"
-              disabled
+        </header>
+
+        <!-- Content -->
+        <section class="modal__body">
+          <div class="playlist-selector">
+            <label 
+              class="playlist-selector__label" 
+              for="chatPlaylistSelect" 
+              data-i18n="chat.playlistContext.label"
             >
-              <option value="" data-i18n="chat.playlistContext.loading">Loading playlists…</option>
-            </select>
-            <button
-              type="button"
-              class="btn btn--ghost chat-playlist-picker__refresh"
-              id="chatRefreshPlaylists"
-              data-i18n="chat.playlistContext.refresh"
-            >
-              Refresh
-            </button>
+              Enhance an existing playlist (optional)
+            </label>
+            
+            <div class="playlist-selector__controls modal__controls">
+              <select
+                id="chatPlaylistSelect"
+                class="playlist-selector__select"
+                aria-describedby="chatPlaylistHint"
+                disabled
+              >
+                <option value="" data-i18n="chat.playlistContext.loading">
+                  Loading playlists…
+                </option>
+              </select>
+              
+              <button
+                type="button"
+                class="btn btn--ghost playlist-selector__refresh"
+                id="chatRefreshPlaylists"
+                data-i18n="chat.playlistContext.refresh"
+              >
+                Refresh
+              </button>
+            </div>
+            
+            <p
+              id="chatPlaylistHint"
+              class="playlist-selector__hint status"
+              role="status"
+              aria-live="polite"
+              hidden
+              aria-hidden="true"
+            ></p>
           </div>
-          <p
-            id="chatPlaylistHint"
-            class="status"
-            role="status"
-            aria-live="polite"
-            hidden
-            aria-hidden="true"
-          ></p>
-        </div>
-        <div class="modal__footer">
-          <button type="button" class="btn btn--ghost" id="chatPlaylistModalCancel" data-i18n="chat.playlistModal.cancel">
+        </section>
+
+        <!-- Footer Actions -->
+        <footer class="modal__footer">
+          <button 
+            type="button" 
+            class="btn btn--ghost" 
+            id="chatPlaylistModalCancel" 
+            data-i18n="chat.playlistModal.cancel"
+          >
             Cancelar
           </button>
-          <button type="button" class="btn btn--primary" id="chatSendPlaylistContext" data-i18n="chat.playlistModal.send">
+          <button 
+            type="button" 
+            class="btn btn--primary" 
+            id="chatSendPlaylistContext" 
+            data-i18n="chat.playlistModal.send"
+          >
             Enviar playlist
           </button>
-        </div>
+        </footer>
       </div>
     </div>
 

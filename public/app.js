@@ -5378,10 +5378,19 @@ async function checkAuthStatus() {
     const response = await fetch('/status');
     const data = await response.json();
     updateLoginButton(data.logged_in, data.user);
+    
+    // Se estava deslogado e agora está logado, recarregar dados
+    if (data.logged_in && !window.wasLoggedIn) {
+      loadGeminiModels();
+      loadUserPlaylists();
+    }
+    
+    window.wasLoggedIn = data.logged_in;
     return data.logged_in;
   } catch (error) {
     console.error('Failed to check auth status:', error);
     updateLoginButton(false);
+    window.wasLoggedIn = false;
     return false;
   }
 }
@@ -5445,6 +5454,11 @@ function checkURLParams() {
   }
 }
 
+// Verificar login periodicamente para manter sessão ativa
+function startPeriodicLoginCheck() {
+  setInterval(checkAuthStatus, 5 * 60 * 1000); // A cada 5 minutos
+}
+
 // Inicializar aplicação
 async function initApp() {
   checkURLParams();
@@ -5457,6 +5471,9 @@ async function initApp() {
   if (isLoggedIn) {
     loadUserPlaylists();
   }
+  
+  // Iniciar verificação periódica
+  startPeriodicLoginCheck();
 }
 
 initApp();

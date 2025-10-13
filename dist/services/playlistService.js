@@ -7,7 +7,6 @@ import { formatSpotifyError } from "../utils/errors";
 import { sleep } from "../utils/sleep";
 import { extractArtistTokens, extractSpotifyPlaylistId, normalizeForMatch, } from "../utils/spotify";
 import { RequestQueue } from "./requestQueue";
-import { spotifyApi } from "./spotifyClient";
 import { generateCustomPlaylistWithGemini, generatePlaylistsWithGemini, resolveMissingTracksWithGemini, sanitizeChatPlaylistContext, normalizeChatMessages, } from "./geminiService";
 import { geminiConfig } from "../config/env";
 export const requestQueue = new RequestQueue();
@@ -78,7 +77,7 @@ function resolveGenreGroup(genres) {
     const key = primary.toLowerCase().replace(/[^a-z0-9]+/gi, "-");
     return { key, label: formatGenreName(primary) };
 }
-export async function getAllLikedSongs(statusContext) {
+export async function getAllLikedSongs(userSpotifyApi, statusContext) {
     let allTracks = [];
     let offset = 0;
     const limit = 50;
@@ -89,7 +88,7 @@ export async function getAllLikedSongs(statusContext) {
     let hasAnnounced = false;
     do {
         log(`Fetching liked songs: offset ${offset}`);
-        const data = await spotifyApi.getMySavedTracks({ limit, offset });
+        const data = await userSpotifyApi.getMySavedTracks({ limit, offset });
         total = data.body.total;
         if (shouldBroadcast && !hasAnnounced) {
             statusBroadcaster.likedStart(statusContext, { total });
@@ -187,7 +186,7 @@ export function trackMatchesRequested(track, song) {
         candidate.includes(artistToken) ||
         artistToken.includes(candidate)));
 }
-export async function findTrackUris(songs, playlistName) {
+export async function findTrackUris(userSpotifyApi, songs, playlistName) {
     const delayBetweenSongsMs = 120;
     const uris = new Array(songs.length).fill(undefined);
     const unresolved = [];
@@ -208,7 +207,7 @@ export async function findTrackUris(songs, playlistName) {
             for (let attempt = 0; attempt < queries.length; attempt += 1) {
                 const query = queries[attempt];
                 try {
-                    const searchResponse = await spotifyApi.searchTracks(query, { limit: 20 });
+                    const searchResponse = await userSpotifyApi.searchTracks(query, { limit: 20 });
                     const items = searchResponse.body.tracks?.items ?? [];
                     if (!items.length) {
                         continue;
@@ -316,7 +315,7 @@ export async function generateOrLoadPlaylists(likedSongs, modelName) {
     log(`Generating new playlists${modelName ? ` with Gemini model ${modelName}` : ""}`);
     return generatePlaylistsWithGemini(likedSongs, modelName);
 }
-export async function loadOrGeneratePlaylistsForPreview(modelName, statusContext) {
+export async function loadOrGeneratePlaylistsForPreview(userSpotifyApi, modelName, statusContext) {
     if (!modelName) {
         try {
             log("Attempting to load saved playlists for preview");
@@ -333,7 +332,7 @@ export async function loadOrGeneratePlaylistsForPreview(modelName, statusContext
             log("saved_playlists.json not found. Generating new playlists for preview.");
         }
     }
-    const likedSongs = await getAllLikedSongs(statusContext);
+    const likedSongs = await getAllLikedSongs(userSpotifyApi, statusContext);
     const playlists = await generatePlaylistsWithGemini(likedSongs, modelName);
     if (!modelName) {
         await fs.writeFile(savedPlaylistsPath, JSON.stringify(playlists, null, 2));
@@ -341,8 +340,8 @@ export async function loadOrGeneratePlaylistsForPreview(modelName, statusContext
     }
     return playlists;
 }
-export async function generateGenrePlaylists(statusContext) {
-    const likedSongs = await getAllLikedSongs(statusContext);
+export async function generateGenrePlaylists(userSpotifyApi, statusContext) {
+    const likedSongs = await getAllLikedSongs(userSpotifyApi, statusContext);
     if (!likedSongs.length) {
         return [];
     }
@@ -362,7 +361,7 @@ export async function generateGenrePlaylists(statusContext) {
     for (let i = 0; i < uniqueArtistIds.length; i += artistBatchSize) {
         const batch = uniqueArtistIds.slice(i, i + artistBatchSize);
         try {
-            const response = await requestQueue.add(() => spotifyApi.getArtists(batch));
+            const response = await requestQueue.add(() => userSpotifyApi.getArtists(batch));
             const artists = response.body.artists ?? [];
             artists.forEach((artist) => {
                 if (artist?.id) {

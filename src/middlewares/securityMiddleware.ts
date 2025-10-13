@@ -34,6 +34,7 @@ export const helmetMiddleware = helmet({
 			fontSrc: ["'self'", "https://fonts.gstatic.com"],
 			scriptSrc: ["'self'"],
 			imgSrc: ["'self'", "data:", "https:"],
+			mediaSrc: ["'self'", "https://p.scdn.co", "https://*.scdn.co"],
 			connectSrc: ["'self'", "https://api.spotify.com", "https://accounts.spotify.com"],
 		},
 	},
@@ -45,11 +46,12 @@ export const sessionMiddleware = session({
 	secret: process.env.SESSION_SECRET || 'fallback-secret-change-this',
 	resave: false,
 	saveUninitialized: false,
+	rolling: true, // Renova cookie a cada requisição
 	cookie: {
 		secure: !appConfig.isDevelopment, // HTTPS apenas em produção
 		httpOnly: true,
-		maxAge: 1000 * 60 * 60 * 24 * 7, // 7 dias
+		maxAge: 1000 * 60 * 60 * 24 * 30, // 30 dias
 		sameSite: 'lax'
 	},
-	name: 'geminify.session'
+	name: 'geminify-session'
 });
