@@ -19,7 +19,7 @@ import { formatSpotifyError } from "../utils/errors";
 import { log } from "../utils/logger";
 import { spotifyApi } from "../services/spotifyClient";
 import { sleep } from "../utils/sleep";
-import { clearTokenFile } from "../services/spotifyAuthService";
+import { clearTokenFile, createUserSpotifyApi } from "../services/spotifyAuthService";
 import { PlaylistPreview, UnresolvedTrackSelection } from "../interfaces";
 
 const playlistController = Router();
@@ -28,6 +28,18 @@ function createStatusContext(operation: string): StatusContext | undefined {
 	return statusBroadcaster.hasSubscribers()
 		? statusBroadcaster.createContext(operation)
 		: undefined;
+}
+
+// Helper para obter a API do Spotify do usuário da sessão
+function getUserSpotifyApi(req: any) {
+	if (req.session?.user?.access_token) {
+		return createUserSpotifyApi(
+			req.session.user.access_token,
+			req.session.user.refresh_token
+		);
+	}
+	// Fallback para compatibilidade (caso ainda existam tokens no arquivo)
+	return spotifyApi;
 }
 
 interface SelectedSongInput {
@@ -184,12 +196,13 @@ async function collectPlaylistTrackUris(
 	return uris;
 }
 
-playlistController.get("/liked-songs", async (_req, res) => {
+playlistController.get("/liked-songs", async (req, res) => {
 	const statusContext = createStatusContext("liked-songs");
 
 	try {
 		log("Fetching liked songs");
-		const songs = await getAllLikedSongs(statusContext);
+		const userSpotifyApi = getUserSpotifyApi(req);
+		const songs = await getAllLikedSongs(userSpotifyApi, statusContext);
 		log(`Fetched ${songs.length} liked songs`);
 		res.json(songs);
 	} catch (error) {
@@ -211,7 +224,8 @@ playlistController.get("/generate-playlists", async (req, res) => {
 
 	try {
 		log("Generating playlists");
-		const likedSongs = await getAllLikedSongs(statusContext);
+		const userSpotifyApi = getUserSpotifyApi(req);
+		const likedSongs = await getAllLikedSongs(userSpotifyApi, statusContext);
 
 		if (statusContext) {
 			statusBroadcaster.geminiStart(statusContext, {
@@ -244,11 +258,12 @@ playlistController.get("/generate-playlists", async (req, res) => {
 	}
 });
 
-playlistController.get("/genre-playlists", async (_req, res) => {
+playlistController.get("/genre-playlists", async (req, res) => {
 	const statusContext = createStatusContext("genre-playlists");
 
 	try {
-		const playlists = await generateGenrePlaylists(statusContext);
+		const userSpotifyApi = getUserSpotifyApi(req);
+		const playlists = await generateGenrePlaylists(userSpotifyApi, statusContext);
 		const totalSongs = playlists.reduce((total, playlist) => total + playlist.count, 0);
 
 		res.json({
@@ -283,7 +298,8 @@ playlistController.get("/preview-playlists", async (req, res) => {
 			});
 		}
 
-		const playlists = await loadOrGeneratePlaylistsForPreview(modelName, statusContext);
+		const userSpotifyApi = getUserSpotifyApi(req);
+		const playlists = await loadOrGeneratePlaylistsForPreview(userSpotifyApi, modelName, statusContext);
 		broadcastPlaylistSongs(playlists, statusContext);
 
 		if (statusContext) {
@@ -299,6 +315,7 @@ playlistController.get("/preview-playlists", async (req, res) => {
 			try {
 				const sanitized = sanitizePlaylist(playlist);
 				const { uris, unresolved } = await findTrackUris(
+					userSpotifyApi,
 					sanitized.songs,
 					sanitized.name
 				);
@@ -387,13 +404,14 @@ playlistController.get("/preview-playlists", async (req, res) => {
 	}
 });
 
-playlistController.get("/user-playlists", async (_req, res) => {
+playlistController.get("/user-playlists", async (req, res) => {
 	try {
 		const limit = 50;
 		let offset = 0;
 		const maxPlaylists = 200;
 
-		const meResponse = await requestQueue.add(() => spotifyApi.getMe());
+		const userSpotifyApi = getUserSpotifyApi(req);
+		const meResponse = await requestQueue.add(() => userSpotifyApi.getMe());
 		const currentUserId = meResponse.body?.id ?? "";
 		const currentUserDisplayName =
 			meResponse.body?.display_name || currentUserId || undefined;
@@ -411,7 +429,7 @@ playlistController.get("/user-playlists", async (_req, res) => {
 
 		while (collected.length < maxPlaylists) {
 			const response = await requestQueue.add(() =>
-				spotifyApi.getUserPlaylists({ limit, offset })
+				userSpotifyApi.getUserPlaylists({ limit, offset })
 			);
 			const items = response.body?.items ?? [];
 			const total = typeof response.body?.total === "number" ? response.body.total : undefined;
@@ -490,8 +508,9 @@ playlistController.get("/playlist-details", async (req, res) => {
 	}
 
 	try {
+		const userSpotifyApi = getUserSpotifyApi(req);
 		const playlistResponse = await requestQueue.add(() =>
-			spotifyApi.getPlaylist(playlistId)
+			userSpotifyApi.getPlaylist(playlistId)
 		);
 
 		const playlist = playlistResponse.body;
@@ -518,7 +537,7 @@ playlistController.get("/playlist-details", async (req, res) => {
 			const remaining = totalTracks - offset;
 			const batchLimit = Math.min(limit, remaining);
 			const batch = await requestQueue.add(() =>
-				spotifyApi.getPlaylistTracks(playlistId, {
+				userSpotifyApi.getPlaylistTracks(playlistId, {
 					offset,
 					limit: batchLimit,
 				})
@@ -592,8 +611,9 @@ playlistController.get("/track-preview", async (req, res) => {
 	}
 
 	try {
+		const userSpotifyApi = getUserSpotifyApi(req);
 		const response = await requestQueue.add(() =>
-			spotifyApi.getTrack(trackId, {
+			userSpotifyApi.getTrack(trackId, {
 				market: typeof marketParam === "string" && marketParam.trim() ? marketParam.trim() : undefined,
 			})
 		);
@@ -681,12 +701,13 @@ playlistController.post("/create-custom-playlist", async (req, res) => {
 	const modelName = modelParam || undefined;
 
 	try {
+		const userSpotifyApi = getUserSpotifyApi(req);
 		let existingPlaylist: SpotifyApi.PlaylistObjectFull | null = null;
 
 		if (targetPlaylistId) {
 			try {
 				const playlistResponse = await requestQueue.add(() =>
-					spotifyApi.getPlaylist(targetPlaylistId)
+					userSpotifyApi.getPlaylist(targetPlaylistId)
 				);
 				existingPlaylist = playlistResponse.body;
 			} catch (error) {
@@ -744,7 +765,7 @@ playlistController.post("/create-custom-playlist", async (req, res) => {
 		if (hasSelectedSongs && selectedSongsInput.every((song) => Boolean(song.uri))) {
 			trackUris = selectedSongsInput.map((song) => song.uri) as (string | undefined)[];
 		} else {
-			const lookup = await findTrackUris(sanitized.songs, sanitized.name);
+			const lookup = await findTrackUris(userSpotifyApi, sanitized.songs, sanitized.name);
 			trackUris = [...lookup.uris];
 			unresolved = lookup.unresolved;
 
@@ -819,7 +840,7 @@ playlistController.post("/create-custom-playlist", async (req, res) => {
 
 			if (tracksToAdd.length) {
 				await requestQueue.add(() =>
-					spotifyApi.addTracksToPlaylist(targetPlaylistId, tracksToAdd)
+					userSpotifyApi.addTracksToPlaylist(targetPlaylistId, tracksToAdd)
 				);
 			}
 
@@ -830,7 +851,7 @@ playlistController.post("/create-custom-playlist", async (req, res) => {
 			if (description) {
 				try {
 					await requestQueue.add(() =>
-						spotifyApi.changePlaylistDetails(targetPlaylistId, {
+						userSpotifyApi.changePlaylistDetails(targetPlaylistId, {
 							description,
 						})
 					);
@@ -854,14 +875,14 @@ playlistController.post("/create-custom-playlist", async (req, res) => {
 			};
 		} else {
 			const newPlaylist = await requestQueue.add(() =>
-				spotifyApi.createPlaylist(sanitized.name, {
+				userSpotifyApi.createPlaylist(sanitized.name, {
 					description: sanitized.description,
 					public: false,
 				})
 			);
 
 			await requestQueue.add(() =>
-				spotifyApi.addTracksToPlaylist(newPlaylist.body.id, uniqueTrackUris)
+				userSpotifyApi.addTracksToPlaylist(newPlaylist.body.id, uniqueTrackUris)
 			);
 
 			responsePayload = {

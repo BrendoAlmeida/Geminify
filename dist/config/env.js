@@ -15,6 +15,7 @@ export const appConfig = {
     nodeEnv,
     isDevelopment,
     port: Number(process.env.PORT ?? 3000),
+    sessionSecret: process.env.SESSION_SECRET,
 };
 export function assertEnv(value, name) {
     if (!value) {

@@ -22,6 +22,7 @@ import {
 } from "../utils/spotify";
 import { RequestQueue } from "./requestQueue";
 import { spotifyApi } from "./spotifyClient";
+import SpotifyWebApi from "spotify-web-api-node";
 import {
   generateCustomPlaylistWithGemini,
   generatePlaylistsWithGemini,
@@ -108,6 +109,7 @@ function resolveGenreGroup(genres: string[]): { key: string; label: string } {
 }
 
 export async function getAllLikedSongs(
+  userSpotifyApi: SpotifyWebApi,
   statusContext?: StatusContext
 ): Promise<LikedSong[]> {
   let allTracks: LikedSong[] = [];
@@ -123,7 +125,7 @@ export async function getAllLikedSongs(
 
   do {
     log(`Fetching liked songs: offset ${offset}`);
-    const data = await spotifyApi.getMySavedTracks({ limit, offset });
+    const data = await userSpotifyApi.getMySavedTracks({ limit, offset });
     total = data.body.total;
 
     if (shouldBroadcast && !hasAnnounced) {
@@ -255,6 +257,7 @@ export function trackMatchesRequested(
 }
 
 export async function findTrackUris(
+  userSpotifyApi: SpotifyWebApi,
   songs: Song[],
   playlistName?: string
 ): Promise<{ uris: (string | undefined)[]; unresolved: UnresolvedTrackSelection[] }> {
@@ -288,7 +291,7 @@ export async function findTrackUris(
         const query = queries[attempt];
 
         try {
-          const searchResponse = await spotifyApi.searchTracks(query, { limit: 20 });
+          const searchResponse = await userSpotifyApi.searchTracks(query, { limit: 20 });
 
           const items = searchResponse.body.tracks?.items ?? [];
 
@@ -441,6 +444,7 @@ export async function generateOrLoadPlaylists(
 }
 
 export async function loadOrGeneratePlaylistsForPreview(
+  userSpotifyApi: SpotifyWebApi,
   modelName?: string,
   statusContext?: StatusContext
 ): Promise<Playlist[]> {
@@ -463,7 +467,7 @@ export async function loadOrGeneratePlaylistsForPreview(
     }
   }
 
-  const likedSongs = await getAllLikedSongs(statusContext);
+  const likedSongs = await getAllLikedSongs(userSpotifyApi, statusContext);
   const playlists = await generatePlaylistsWithGemini(likedSongs, modelName);
   if (!modelName) {
     await fs.writeFile(savedPlaylistsPath, JSON.stringify(playlists, null, 2));
@@ -473,9 +477,10 @@ export async function loadOrGeneratePlaylistsForPreview(
 }
 
 export async function generateGenrePlaylists(
+  userSpotifyApi: SpotifyWebApi,
   statusContext?: StatusContext
 ): Promise<GenrePlaylist[]> {
-  const likedSongs = await getAllLikedSongs(statusContext);
+  const likedSongs = await getAllLikedSongs(userSpotifyApi, statusContext);
   if (!likedSongs.length) {
     return [];
   }
@@ -502,7 +507,7 @@ export async function generateGenrePlaylists(
 
     try {
       const response = await requestQueue.add(() =>
-        spotifyApi.getArtists(batch)
+        userSpotifyApi.getArtists(batch)
       );
 
       const artists = response.body.artists ?? [];

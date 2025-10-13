@@ -3,12 +3,35 @@ import { spotifyApi } from "./spotifyClient";
 import { tokenPath } from "../config/paths";
 import { TokenData } from "../interfaces";
 import { log } from "../utils/logger";
+import SpotifyWebApi from "spotify-web-api-node";
 
 export class MissingTokenError extends Error {
   constructor(message = "Spotify authentication required.") {
     super(message);
     this.name = "MissingTokenError";
   }
+}
+
+export interface UserTokens {
+  access_token: string;
+  refresh_token?: string;
+  expires_in: number;
+}
+
+// Função para criar uma instância do Spotify API para um usuário específico
+export function createUserSpotifyApi(accessToken: string, refreshToken?: string): SpotifyWebApi {
+  const api = new SpotifyWebApi({
+    clientId: process.env.SPOTIFY_CLIENT_ID,
+    clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
+    redirectUri: process.env.SPOTIFY_REDIRECT_URI
+  });
+  
+  api.setAccessToken(accessToken);
+  if (refreshToken) {
+    api.setRefreshToken(refreshToken);
+  }
+  
+  return api;
 }
 
 async function readToken(): Promise<TokenData> {
@@ -35,9 +58,13 @@ export function getAuthorizeUrl(scopes: string[], state: string): string {
   return spotifyApi.createAuthorizeURL(scopes, state);
 }
 
-export async function exchangeCodeForTokens(code: string): Promise<TokenData> {
+export async function exchangeCodeForTokens(code: string): Promise<TokenData & { user_data?: any }> {
   const data = await spotifyApi.authorizationCodeGrant(code);
   const { access_token, refresh_token, expires_in } = data.body;
+
+  // Obter dados do usuário
+  spotifyApi.setAccessToken(access_token);
+  const userData = await spotifyApi.getMe();
 
   const payload: TokenData = {
     access_token,
@@ -45,10 +72,37 @@ export async function exchangeCodeForTokens(code: string): Promise<TokenData> {
     expires_at: Date.now() + expires_in * 1000,
   };
 
+  // Manter compatibilidade com sistema antigo (salvar no arquivo)
   await writeToken(payload);
-  spotifyApi.setAccessToken(access_token);
   spotifyApi.setRefreshToken(refresh_token);
-  return payload;
+
+  return {
+    ...payload,
+    user_data: userData.body
+  };
+}
+
+// Nova função para renovar token de usuário específico
+export async function refreshUserToken(refreshToken: string): Promise<UserTokens> {
+  const tempApi = new SpotifyWebApi({
+    clientId: process.env.SPOTIFY_CLIENT_ID,
+    clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
+    redirectUri: process.env.SPOTIFY_REDIRECT_URI
+  });
+  
+  tempApi.setRefreshToken(refreshToken);
+  
+  try {
+    const data = await tempApi.refreshAccessToken();
+    return {
+      access_token: data.body.access_token,
+      refresh_token: data.body.refresh_token,
+      expires_in: data.body.expires_in
+    };
+  } catch (error) {
+    log(`Failed to refresh user token: ${error}`);
+    throw new Error("Failed to refresh token. Please log in again.");
+  }
 }
 
 export async function refreshTokenIfNeeded(): Promise<void> {

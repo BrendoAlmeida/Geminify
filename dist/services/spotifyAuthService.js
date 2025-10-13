@@ -2,11 +2,25 @@ import { promises as fs } from "fs";
 import { spotifyApi } from "./spotifyClient";
 import { tokenPath } from "../config/paths";
 import { log } from "../utils/logger";
+import SpotifyWebApi from "spotify-web-api-node";
 export class MissingTokenError extends Error {
     constructor(message = "Spotify authentication required.") {
         super(message);
         this.name = "MissingTokenError";
     }
+}
+// Função para criar uma instância do Spotify API para um usuário específico
+export function createUserSpotifyApi(accessToken, refreshToken) {
+    const api = new SpotifyWebApi({
+        clientId: process.env.SPOTIFY_CLIENT_ID,
+        clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
+        redirectUri: process.env.SPOTIFY_REDIRECT_URI
+    });
+    api.setAccessToken(accessToken);
+    if (refreshToken) {
+        api.setRefreshToken(refreshToken);
+    }
+    return api;
 }
 async function readToken() {
     try {
@@ -32,15 +46,42 @@ export function getAuthorizeUrl(scopes, state) {
 export async function exchangeCodeForTokens(code) {
     const data = await spotifyApi.authorizationCodeGrant(code);
     const { access_token, refresh_token, expires_in } = data.body;
+    // Obter dados do usuário
+    spotifyApi.setAccessToken(access_token);
+    const userData = await spotifyApi.getMe();
     const payload = {
         access_token,
         refresh_token,
         expires_at: Date.now() + expires_in * 1000,
     };
+    // Manter compatibilidade com sistema antigo (salvar no arquivo)
     await writeToken(payload);
-    spotifyApi.setAccessToken(access_token);
     spotifyApi.setRefreshToken(refresh_token);
-    return payload;
+    return {
+        ...payload,
+        user_data: userData.body
+    };
+}
+// Nova função para renovar token de usuário específico
+export async function refreshUserToken(refreshToken) {
+    const tempApi = new SpotifyWebApi({
+        clientId: process.env.SPOTIFY_CLIENT_ID,
+        clientSecret: process.env.SPOTIFY_CLIENT_SECRET,
+        redirectUri: process.env.SPOTIFY_REDIRECT_URI
+    });
+    tempApi.setRefreshToken(refreshToken);
+    try {
+        const data = await tempApi.refreshAccessToken();
+        return {
+            access_token: data.body.access_token,
+            refresh_token: data.body.refresh_token,
+            expires_in: data.body.expires_in
+        };
+    }
+    catch (error) {
+        log(`Failed to refresh user token: ${error}`);
+        throw new Error("Failed to refresh token. Please log in again.");
+    }
 }
 export async function refreshTokenIfNeeded() {
     const tokenData = await readToken();

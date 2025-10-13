@@ -5372,6 +5372,91 @@ window.addEventListener("pageshow", (event) => {
   }
 });
 
-initStatusStream();
-loadGeminiModels();
-loadUserPlaylists();
+// Verificar status de login e atualizar interface
+async function checkAuthStatus() {
+  try {
+    const response = await fetch('/status');
+    const data = await response.json();
+    updateLoginButton(data.logged_in, data.user);
+    return data.logged_in;
+  } catch (error) {
+    console.error('Failed to check auth status:', error);
+    updateLoginButton(false);
+    return false;
+  }
+}
+
+function updateLoginButton(isLoggedIn, user = null) {
+  if (!loginButton) return;
+
+  if (isLoggedIn && user) {
+    // Usuário logado - mostrar botão de logout
+    loginButton.textContent = `🚪 Sair (${user.display_name})`;
+    loginButton.href = '/logout';
+    loginButton.className = 'btn btn--logout';
+    loginButton.title = `Logado como ${user.display_name}. Clique para sair`;
+  } else {
+    // Usuário não logado - mostrar botão de login
+    loginButton.textContent = t("hero.playlists.login") || "🎵 Log in with Spotify";
+    loginButton.href = '/login';
+    loginButton.className = 'btn btn--primary';
+    loginButton.title = 'Login with Spotify';
+  }
+}
+
+// Verificar parâmetros da URL para mensagens de feedback
+function checkURLParams() {
+  const params = new URLSearchParams(window.location.search);
+  
+  if (params.get('login') === 'success') {
+    // Login realizado com sucesso
+    setTimeout(() => {
+      window.history.replaceState({}, '', window.location.pathname);
+    }, 100);
+  } else if (params.get('logout') === 'success') {
+    // Logout realizado com sucesso
+    setTimeout(() => {
+      window.history.replaceState({}, '', window.location.pathname);
+    }, 100);
+  } else if (params.get('error')) {
+    // Erro no login
+    const error = params.get('error');
+    let message = 'Authentication failed';
+    
+    switch (error) {
+      case 'access_denied':
+        message = 'Access denied. Please try logging in again.';
+        break;
+      case 'missing_code':
+        message = 'Missing authorization code. Please try again.';
+        break;
+      case 'invalid_state':
+        message = 'Invalid state parameter. Please try again.';
+        break;
+      case 'login_failed':
+        message = 'Login failed. Please try again.';
+        break;
+    }
+    
+    console.error('Auth error:', message);
+    setTimeout(() => {
+      window.history.replaceState({}, '', window.location.pathname);
+    }, 100);
+  }
+}
+
+// Inicializar aplicação
+async function initApp() {
+  checkURLParams();
+  const isLoggedIn = await checkAuthStatus();
+  
+  initStatusStream();
+  loadGeminiModels();
+  
+  // Só carregar playlists se estiver logado
+  if (isLoggedIn) {
+    loadUserPlaylists();
+  }
+}
+
+initApp();
