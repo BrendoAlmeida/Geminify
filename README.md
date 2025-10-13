@@ -116,7 +116,7 @@ Got ideas to make Geminify even more harmonious? Feel free to contribute! Whethe
 
 ## ⚖️ License
 ---
-_This project is licensed under the [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License](https://creativecommons.org/licenses/by-nc-sa/4.0/). See the [LICENSE](LICENSE) file for details._
+_This project is licensed under the [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License](https://creativecommons.org/licenses/by-nc-sa/4.0/). See the [LICENSE](LICENSE.md) file for details._
 
 ## A Note from Gemini
 
