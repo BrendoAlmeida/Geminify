@@ -1,6 +1,6 @@
 import { createHash } from "crypto";
-import { geminiConfig } from "../config/env";
-import { geminiClient } from "./geminiClient";
+import { geminiConfig } from "../config/env.js";
+import { geminiClient } from "./geminiClient.js";
 import spotifyPreviewFinder from "spotify-preview-finder";
 import {
   ChatMessage,
@@ -19,13 +19,13 @@ import {
   Song,
   TrackSearchCandidate,
   UnresolvedTrackSelection,
-} from "../interfaces";
-import { log } from "../utils/logger";
-import { spotifyApi } from "./spotifyClient";
-import { MissingTokenError, refreshTokenIfNeeded } from "./spotifyAuthService";
-import { normalizeForMatch, extractArtistTokens } from "../utils/spotify";
-import { formatSpotifyError } from "../utils/errors";
-import { sleep } from "../utils/sleep";
+} from "../interfaces/index.js";
+import { log } from "../utils/logger.js";
+import { spotifyApi } from "./spotifyClient.js";
+import { MissingTokenError, refreshTokenIfNeeded } from "./spotifyAuthService.js";
+import { normalizeForMatch, extractArtistTokens } from "../utils/spotify.js";
+import { formatSpotifyError } from "../utils/errors.js";
+import { sleep } from "../utils/sleep.js";
 
 const MAX_CHAT_MESSAGES = 12;
 const MAX_CHAT_MESSAGE_LENGTH = 1200;

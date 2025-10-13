@@ -1,19 +1,19 @@
 import express from "express";
 import path from "path";
-import statusController from "../controllers/statusController";
-import authController from "../controllers/authController";
-import geminiController from "../controllers/geminiController";
-import chatController from "../controllers/chatController";
-import playlistController from "../controllers/playlistController";
-import { ensureSpotifyAuth } from "../middlewares/spotifyAuthMiddleware";
-import { errorHandler } from "../middlewares/errorHandler";
-import { publicDir } from "../config/paths";
+import statusController from "../controllers/statusController.js";
+import authController from "../controllers/authController.js";
+import geminiController from "../controllers/geminiController.js";
+import chatController from "../controllers/chatController.js";
+import playlistController from "../controllers/playlistController.js";
+import { ensureSpotifyAuth } from "../middlewares/spotifyAuthMiddleware.js";
+import { errorHandler } from "../middlewares/errorHandler.js";
+import { publicDir } from "../config/paths.js";
 import { 
   helmetMiddleware, 
   sessionMiddleware, 
   rateLimiter, 
   authRateLimiter 
-} from "../middlewares/securityMiddleware";
+} from "../middlewares/securityMiddleware.js";
 
 export function createApp() {
 	const app = express();

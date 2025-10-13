@@ -4,9 +4,9 @@ import {
   refreshTokenIfNeeded,
   refreshUserToken,
   createUserSpotifyApi,
-} from "../services/spotifyAuthService";
-import { formatSpotifyError } from "../utils/errors";
-import { log } from "../utils/logger";
+} from "../services/spotifyAuthService.js";
+import { formatSpotifyError } from "../utils/errors.js";
+import { log } from "../utils/logger.js";
 
 // Estender o tipo Request para incluir user na sessão
 declare module "express-session" {

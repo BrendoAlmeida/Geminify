@@ -1,6 +1,6 @@
-import { createApp } from "./app";
-import { appConfig, assertEnv, geminiConfig, spotifyConfig } from "./config/env";
-import { log } from "./utils/logger";
+import { createApp } from "./app/index.js";
+import { appConfig, assertEnv, geminiConfig, spotifyConfig } from "./config/env.js";
+import { log } from "./utils/logger.js";
 
 function ensureEnvironment() {
 	assertEnv(spotifyConfig.clientId, "SPOTIFY_CLIENT_ID");

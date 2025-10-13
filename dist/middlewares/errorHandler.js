@@ -1,4 +1,4 @@
-import { log } from "../utils/logger";
+import { log } from "../utils/logger.js";
 export function errorHandler(error, _req, res, _next) {
     log(`Unhandled error: ${error instanceof Error ? error.stack ?? error.message : error}`);
     if (res.headersSent) {

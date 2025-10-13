@@ -4,11 +4,14 @@
     "module": "ESNext",
     "moduleResolution": "node",
     "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
     "strict": true,
     "outDir": "./dist",
     "rootDir": "./src",
     "allowJs": true,
     "resolveJsonModule": true,
+    "declaration": false,
+    "sourceMap": false,
     "typeRoots": [
       "./src/types",
       "./node_modules/@types"

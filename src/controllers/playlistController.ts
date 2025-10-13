@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { promises as fs } from "fs";
-import statusBroadcaster, { StatusContext } from "../services/statusBroadcaster";
+import statusBroadcaster, { StatusContext } from "../services/statusBroadcaster.js";
 import {
 	getAllLikedSongs,
 	generateOrLoadPlaylists,
@@ -13,14 +13,14 @@ import {
 	createCustomPlaylist,
 	extractSpotifyPlaylistId,
 	requestQueue,
-} from "../services/playlistService";
-import { savedPlaylistsPath } from "../config/paths";
-import { formatSpotifyError } from "../utils/errors";
-import { log } from "../utils/logger";
-import { spotifyApi } from "../services/spotifyClient";
-import { sleep } from "../utils/sleep";
-import { clearTokenFile, createUserSpotifyApi } from "../services/spotifyAuthService";
-import { PlaylistPreview, UnresolvedTrackSelection } from "../interfaces";
+} from "../services/playlistService.js";
+import { savedPlaylistsPath } from "../config/paths.js";
+import { formatSpotifyError } from "../utils/errors.js";
+import { log } from "../utils/logger.js";
+import { spotifyApi } from "../services/spotifyClient.js";
+import { sleep } from "../utils/sleep.js";
+import { clearTokenFile, createUserSpotifyApi } from "../services/spotifyAuthService.js";
+import { PlaylistPreview, UnresolvedTrackSelection } from "../interfaces/index.js";
 import SpotifyWebApi from "spotify-web-api-node";
 
 const playlistController = Router();

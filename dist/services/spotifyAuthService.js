@@ -1,7 +1,7 @@
 import { promises as fs } from "fs";
-import { spotifyApi } from "./spotifyClient";
-import { tokenPath } from "../config/paths";
-import { log } from "../utils/logger";
+import { spotifyApi } from "./spotifyClient.js";
+import { tokenPath } from "../config/paths.js";
+import { log } from "../utils/logger.js";
 import SpotifyWebApi from "spotify-web-api-node";
 export class MissingTokenError extends Error {
     constructor(message = "Spotify authentication required.") {

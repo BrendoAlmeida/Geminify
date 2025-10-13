@@ -1,5 +1,5 @@
 import { Router } from "express";
-import statusBroadcaster from "../services/statusBroadcaster";
+import statusBroadcaster from "../services/statusBroadcaster.js";
 
 const statusController = Router();
 

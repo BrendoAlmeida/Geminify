@@ -1,4 +1,4 @@
-import { appConfig } from "../config/env";
+import { appConfig } from "../config/env.js";
 
 export function log(message: string): void {
   if (appConfig.isDevelopment) {

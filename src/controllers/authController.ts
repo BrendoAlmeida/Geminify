@@ -2,8 +2,8 @@ import { Router } from "express";
 import {
 	exchangeCodeForTokens,
 	getAuthorizeUrl,
-} from "../services/spotifyAuthService";
-import { log } from "../utils/logger";
+} from "../services/spotifyAuthService.js";
+import { log } from "../utils/logger.js";
 
 const authController = Router();
 

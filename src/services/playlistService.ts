@@ -9,19 +9,19 @@ import {
   Song,
   TrackSearchCandidate,
   UnresolvedTrackSelection,
-} from "../interfaces";
-import statusBroadcaster, { StatusContext } from "./statusBroadcaster";
-import { savedPlaylistsPath } from "../config/paths";
-import { log } from "../utils/logger";
-import { formatSpotifyError } from "../utils/errors";
-import { sleep } from "../utils/sleep";
+} from "../interfaces/index.js";
+import statusBroadcaster, { StatusContext } from "./statusBroadcaster.js";
+import { savedPlaylistsPath } from "../config/paths.js";
+import { log } from "../utils/logger.js";
+import { formatSpotifyError } from "../utils/errors.js";
+import { sleep } from "../utils/sleep.js";
 import {
   extractArtistTokens,
   extractSpotifyPlaylistId,
   normalizeForMatch,
-} from "../utils/spotify";
-import { RequestQueue } from "./requestQueue";
-import { spotifyApi } from "./spotifyClient";
+} from "../utils/spotify.js";
+import { RequestQueue } from "./requestQueue.js";
+import { spotifyApi } from "./spotifyClient.js";
 import SpotifyWebApi from "spotify-web-api-node";
 import {
   generateCustomPlaylistWithGemini,
@@ -29,8 +29,8 @@ import {
   resolveMissingTracksWithGemini,
   sanitizeChatPlaylistContext,
   normalizeChatMessages,
-} from "./geminiService";
-import { geminiConfig } from "../config/env";
+} from "./geminiService.js";
+import { geminiConfig } from "../config/env.js";
 
 export const requestQueue = new RequestQueue();
 

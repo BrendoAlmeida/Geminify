@@ -1,19 +1,53 @@
-# Geminify - Deploy para Produção
+# 🎵 Geminify - Deploy para Produção
 
-## Pré-requisitos
+## 🚀 Deploy no Render (Recomendado)
 
-1. **Servidor com Node.js** (versão 18 ou superior)
-2. **Domínio configurado** apontando para seu servidor
-3. **Certificado SSL** (recomendado: Let's Encrypt)
+### Pré-requisitos
+1. Conta no [Render](https://render.com)
+2. Repositório GitHub com o código
+3. Chaves de API do Spotify e Gemini
 
-## Configuração do Spotify
+### 1. Configurar Spotify App
 
 1. Acesse [Spotify for Developers](https://developer.spotify.com/dashboard)
-2. Crie um novo aplicativo
+2. Crie um novo aplicativo  
 3. Configure as **Redirect URIs**:
-   - Para desenvolvimento: `http://localhost:3000/callback`
-   - Para produção: `https://seudominio.com/callback`
+   - `https://your-app-name.onrender.com/callback`
 4. Anote o **Client ID** e **Client Secret**
+
+### 2. Deploy no Render
+
+1. **Conecte seu repositório**:
+   - Acesse [Render Dashboard](https://dashboard.render.com/)
+   - Clique em "New +" → "Web Service"
+   - Conecte sua conta GitHub e selecione o repositório
+
+2. **Configure o serviço**:
+   - **Name**: `geminify` (ou nome de sua escolha)
+   - **Environment**: `Node`
+   - **Build Command**: `npm install` (deixe como padrão)
+   - **Start Command**: `npm start`
+   - **Node Version**: `18.x` ou superior
+
+### 3. Configurar Variáveis de Ambiente
+
+No painel do Render, adicione as seguintes Environment Variables:
+
+```env
+SPOTIFY_CLIENT_ID=your_spotify_client_id
+SPOTIFY_CLIENT_SECRET=your_spotify_client_secret  
+SPOTIFY_REDIRECT_URI=https://your-app-name.onrender.com/callback
+GEMINI_API_KEY=your_gemini_api_key
+SESSION_SECRET=your-super-secure-random-string
+NODE_ENV=production
+PORT=3000
+```
+
+**🔐 Para gerar SESSION_SECRET seguro:**
+```bash
+# No terminal local
+node -p "require('crypto').randomBytes(32).toString('hex')"
+```
 
 ## Deploy Passo a Passo
 

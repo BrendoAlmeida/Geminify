@@ -1,4 +1,4 @@
-import { exponentialBackoff } from "../utils/backoff";
+import { exponentialBackoff } from "../utils/backoff.js";
 
 export class RequestQueue {
   private queue: Array<() => Promise<void>> = [];

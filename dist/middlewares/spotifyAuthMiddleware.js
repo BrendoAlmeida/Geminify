@@ -1,6 +1,6 @@
-import { MissingTokenError, refreshUserToken, } from "../services/spotifyAuthService";
-import { formatSpotifyError } from "../utils/errors";
-import { log } from "../utils/logger";
+import { MissingTokenError, refreshUserToken, createUserSpotifyApi, } from "../services/spotifyAuthService.js";
+import { formatSpotifyError } from "../utils/errors.js";
+import { log } from "../utils/logger.js";
 export async function ensureSpotifyAuth(req, res, next) {
     try {
         // Verificar se existe usuário na sessão
@@ -9,26 +9,44 @@ export async function ensureSpotifyAuth(req, res, next) {
                 .status(401)
                 .json({ error: "Authentication required. Please log in at /login." });
         }
-        // Verificar se o token ainda é válido (se temos expires_at)
-        if (req.session.user.expires_at && Date.now() >= req.session.user.expires_at) {
-            try {
-                // Tentar renovar o token
-                const newTokens = await refreshUserToken(req.session.user.refresh_token);
-                req.session.user.access_token = newTokens.access_token;
-                if (newTokens.refresh_token) {
-                    req.session.user.refresh_token = newTokens.refresh_token;
+        // Verificar se o token ainda é válido testando uma chamada da API
+        try {
+            const userApi = createUserSpotifyApi(req.session.user.access_token, req.session.user.refresh_token);
+            await userApi.getMe(); // Testa se o token funciona
+            next();
+        }
+        catch (tokenError) {
+            // Token expirou ou é inválido, tentar renovar
+            if (req.session.user.refresh_token) {
+                try {
+                    log(`Token expired for ${req.session.user.display_name}, refreshing...`);
+                    const newTokens = await refreshUserToken(req.session.user.refresh_token);
+                    // Atualizar sessão com novos tokens
+                    req.session.user.access_token = newTokens.access_token;
+                    if (newTokens.refresh_token) {
+                        req.session.user.refresh_token = newTokens.refresh_token;
+                    }
+                    req.session.user.expires_at = Date.now() + (newTokens.expires_in * 1000);
+                    log(`✅ Token refreshed successfully for ${req.session.user.display_name}`);
+                    next();
                 }
-                req.session.user.expires_at = Date.now() + (newTokens.expires_in * 1000);
+                catch (refreshError) {
+                    // Se falhar ao renovar, limpar sessão
+                    log(`❌ Failed to refresh token for ${req.session.user.display_name}: ${refreshError}`);
+                    req.session.user = undefined;
+                    return res
+                        .status(401)
+                        .json({ error: "Session expired. Please log in again." });
+                }
             }
-            catch (refreshError) {
-                // Se falhar ao renovar, remover usuário da sessão
+            else {
+                // Não tem refresh token, limpar sessão
                 req.session.user = undefined;
                 return res
                     .status(401)
-                    .json({ error: "Token expired and refresh failed. Please log in again." });
+                    .json({ error: "Authentication required. Please log in at /login." });
             }
         }
-        next();
     }
     catch (error) {
         if (error instanceof MissingTokenError) {

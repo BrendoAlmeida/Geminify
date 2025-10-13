@@ -1,13 +1,13 @@
 import { Router } from "express";
 import { promises as fs } from "fs";
-import statusBroadcaster from "../services/statusBroadcaster";
-import { getAllLikedSongs, generateOrLoadPlaylists, generateGenrePlaylists, loadOrGeneratePlaylistsForPreview, findTrackUris, resolveUnresolvedTracks, sanitizePlaylist, broadcastPlaylistSongs, createCustomPlaylist, extractSpotifyPlaylistId, requestQueue, } from "../services/playlistService";
-import { savedPlaylistsPath } from "../config/paths";
-import { formatSpotifyError } from "../utils/errors";
-import { log } from "../utils/logger";
-import { spotifyApi } from "../services/spotifyClient";
-import { sleep } from "../utils/sleep";
-import { clearTokenFile, createUserSpotifyApi } from "../services/spotifyAuthService";
+import statusBroadcaster from "../services/statusBroadcaster.js";
+import { getAllLikedSongs, generateOrLoadPlaylists, generateGenrePlaylists, loadOrGeneratePlaylistsForPreview, findTrackUris, resolveUnresolvedTracks, sanitizePlaylist, broadcastPlaylistSongs, createCustomPlaylist, extractSpotifyPlaylistId, requestQueue, } from "../services/playlistService.js";
+import { savedPlaylistsPath } from "../config/paths.js";
+import { formatSpotifyError } from "../utils/errors.js";
+import { log } from "../utils/logger.js";
+import { spotifyApi } from "../services/spotifyClient.js";
+import { sleep } from "../utils/sleep.js";
+import { clearTokenFile, createUserSpotifyApi } from "../services/spotifyAuthService.js";
 const playlistController = Router();
 function createStatusContext(operation) {
     return statusBroadcaster.hasSubscribers()

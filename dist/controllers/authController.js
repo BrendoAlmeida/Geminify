@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { exchangeCodeForTokens, getAuthorizeUrl, } from "../services/spotifyAuthService";
-import { log } from "../utils/logger";
+import { exchangeCodeForTokens, getAuthorizeUrl, } from "../services/spotifyAuthService.js";
+import { log } from "../utils/logger.js";
 const authController = Router();
 const SPOTIFY_SCOPES = [
     "user-library-read",

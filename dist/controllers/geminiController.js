@@ -1,6 +1,6 @@
 import { Router } from "express";
-import { fetchGeminiModels } from "../services/playlistService";
-import { log } from "../utils/logger";
+import { fetchGeminiModels } from "../services/playlistService.js";
+import { log } from "../utils/logger.js";
 const geminiController = Router();
 geminiController.get("/gemini-models", async (_req, res) => {
     try {

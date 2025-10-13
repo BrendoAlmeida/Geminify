@@ -1,14 +1,14 @@
 import { promises as fs } from "fs";
 import axios from "axios";
-import statusBroadcaster from "./statusBroadcaster";
-import { savedPlaylistsPath } from "../config/paths";
-import { log } from "../utils/logger";
-import { formatSpotifyError } from "../utils/errors";
-import { sleep } from "../utils/sleep";
-import { extractArtistTokens, extractSpotifyPlaylistId, normalizeForMatch, } from "../utils/spotify";
-import { RequestQueue } from "./requestQueue";
-import { generateCustomPlaylistWithGemini, generatePlaylistsWithGemini, resolveMissingTracksWithGemini, sanitizeChatPlaylistContext, normalizeChatMessages, } from "./geminiService";
-import { geminiConfig } from "../config/env";
+import statusBroadcaster from "./statusBroadcaster.js";
+import { savedPlaylistsPath } from "../config/paths.js";
+import { log } from "../utils/logger.js";
+import { formatSpotifyError } from "../utils/errors.js";
+import { sleep } from "../utils/sleep.js";
+import { extractArtistTokens, extractSpotifyPlaylistId, normalizeForMatch, } from "../utils/spotify.js";
+import { RequestQueue } from "./requestQueue.js";
+import { generateCustomPlaylistWithGemini, generatePlaylistsWithGemini, resolveMissingTracksWithGemini, sanitizeChatPlaylistContext, normalizeChatMessages, } from "./geminiService.js";
+import { geminiConfig } from "../config/env.js";
 export const requestQueue = new RequestQueue();
 const GENRE_KEYWORDS = [
     { key: "k-pop", label: "K-Pop", test: /k[\s-]?pop/i },

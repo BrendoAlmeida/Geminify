@@ -1,7 +1,7 @@
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import session from "express-session";
-import { appConfig } from "../config/env";
+import { appConfig } from "../config/env.js";
 // Rate limiting - 100 requests por 15 minutos por IP
 export const rateLimiter = rateLimit({
     windowMs: 15 * 60 * 1000, // 15 minutos
@@ -42,11 +42,12 @@ export const sessionMiddleware = session({
     secret: process.env.SESSION_SECRET || 'fallback-secret-change-this',
     resave: false,
     saveUninitialized: false,
+    rolling: true, // Renova cookie a cada requisição
     cookie: {
         secure: !appConfig.isDevelopment, // HTTPS apenas em produção
         httpOnly: true,
-        maxAge: 1000 * 60 * 60 * 24 * 7, // 7 dias
+        maxAge: 1000 * 60 * 60 * 24 * 30, // 30 dias
         sameSite: 'lax'
     },
-    name: 'geminify.session'
+    name: 'geminify-session'
 });

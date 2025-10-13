@@ -1,7 +1,7 @@
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
 import session from "express-session";
-import { appConfig } from "../config/env";
+import { appConfig } from "../config/env.js";
 
 // Rate limiting - 100 requests por 15 minutos por IP
 export const rateLimiter = rateLimit({

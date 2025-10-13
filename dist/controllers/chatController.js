@@ -1,7 +1,7 @@
 import { Router } from "express";
-import { log } from "../utils/logger";
-import { sanitizeChatPayload, validateLatestMessage, } from "../services/playlistService";
-import { generateChatSuggestion } from "../services/geminiService";
+import { log } from "../utils/logger.js";
+import { sanitizeChatPayload, validateLatestMessage, } from "../services/playlistService.js";
+import { generateChatSuggestion } from "../services/geminiService.js";
 const chatController = Router();
 chatController.post("/chat-ideas", async (req, res) => {
     try {
