@@ -226,6 +226,9 @@ const TRANSLATIONS = {
           "Spin up immersive playlists with a tap or describe the vibe and let Gemini curate a bespoke playlist in seconds.",
         login: "Log in with Spotify",
         preview: "Generate Random Playlists",
+        githubLabel: "Star us on GitHub",
+        githubTitle: "Open the project on GitHub and leave a star",
+        githubNote: "Enjoying Geminify? Drop a ⭐ on GitHub to support the project.",
       },
     },
     custom: {
@@ -553,6 +556,9 @@ const TRANSLATIONS = {
           "Gere playlists imersivas com um toque ou descreva o clima e deixe o Gemini montar uma playlist sob medida em segundos.",
         login: "Entrar com Spotify",
         preview: "Gerar playlists aleatórias",
+        githubLabel: "Dê uma estrela no GitHub",
+        githubTitle: "Abra o projeto no GitHub e deixe uma estrela",
+        githubNote: "Curtindo o Geminify? Deixe uma ⭐ no GitHub para apoiar.",
       },
     },
     custom: {

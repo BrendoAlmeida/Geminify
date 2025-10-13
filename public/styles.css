@@ -1449,6 +1449,30 @@ main.content {
   transform: translateY(-2px);
 }
 
+.btn--github {
+  background: rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.btn--github:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.32);
+}
+
+.btn__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.hero__github-note {
+  margin: 4px 0 0;
+  font-size: 0.9rem;
+  color: rgba(245, 248, 255, 0.7);
+}
+
 .btn--logout {
   background: linear-gradient(120deg, rgba(255, 107, 107, 0.2), rgba(255, 184, 77, 0.2));
   color: var(--text-primary);
