@@ -4,6 +4,7 @@ import {
 	getAuthorizeUrl,
 } from "../services/spotifyAuthService.js";
 import { log } from "../utils/logger.js";
+import { authRateLimiter } from "../middlewares/securityMiddleware.js";
 
 const authController = Router();
 
@@ -19,15 +20,19 @@ const SPOTIFY_SCOPES = [
 
 const OAUTH_STATE = "geminify-auth";
 
-authController.get("/login", (req, res) => {
-	// Se já estiver logado, redirecionar para home
-	if (req.session.user) {
-		return res.redirect("/");
-	}
-
-	log("Initiating Spotify login");
-	const authorizeUrl = getAuthorizeUrl(SPOTIFY_SCOPES, OAUTH_STATE);
-	res.redirect(authorizeUrl);
+authController.get("/login", authRateLimiter, (req, res) => {
+	// Sempre destruir a sessão anterior para forçar novo login
+	req.session.destroy((err) => {
+		if (err) {
+			log(`Error destroying session on login: ${err}`);
+		}
+		
+		log("Initiating Spotify login");
+		const authorizeUrl = getAuthorizeUrl(SPOTIFY_SCOPES, OAUTH_STATE);
+		// Forçar Spotify a mostrar tela de seleção de conta
+		const urlWithPrompt = `${authorizeUrl}&show_dialog=true`;
+		res.redirect(urlWithPrompt);
+	});
 });
 
 authController.get("/callback", async (req, res) => {
@@ -41,29 +46,47 @@ authController.get("/callback", async (req, res) => {
 	const state = typeof req.query.state === "string" ? req.query.state : undefined;
 
 	if (!code) {
+		log("Callback: missing authorization code");
 		return res.redirect("/?error=missing_code");
 	}
 
 	if (state !== OAUTH_STATE) {
+		log(`Callback: invalid state. Expected: ${OAUTH_STATE}, Got: ${state}`);
 		return res.redirect("/?error=invalid_state");
 	}
 
 	try {
-		log("Received callback from Spotify");
+		log("Received callback from Spotify, exchanging code for tokens");
 		const tokenData = await exchangeCodeForTokens(code);
 		
-		// Salvar dados do usuário na sessão
-		req.session.user = {
-			id: tokenData.user_data.id,
-			email: tokenData.user_data.email,
-			display_name: tokenData.user_data.display_name,
-			access_token: tokenData.access_token,
-			refresh_token: tokenData.refresh_token,
-			expires_at: tokenData.expires_at,
-		};
-
-		log(`Login successful for user ${tokenData.user_data.display_name} (${tokenData.user_data.id})`);
-		res.redirect("/?login=success");
+		// Regenerar sessão para garantir que está limpa e funcional
+		req.session.regenerate((err) => {
+			if (err) {
+				log(`Error regenerating session: ${err}`);
+				return res.redirect("/?error=session_error");
+			}
+			
+			// Salvar dados do usuário na nova sessão
+			req.session.user = {
+				id: tokenData.user_data.id,
+				email: tokenData.user_data.email,
+				display_name: tokenData.user_data.display_name,
+				access_token: tokenData.access_token,
+				refresh_token: tokenData.refresh_token,
+				expires_at: tokenData.expires_at,
+			};
+			
+			// Salvar sessão explicitamente antes de redirecionar
+			req.session.save((saveErr) => {
+				if (saveErr) {
+					log(`Error saving session: ${saveErr}`);
+					return res.redirect("/?error=session_error");
+				}
+				
+				log(`✅ Login successful for user ${tokenData.user_data.display_name} (${tokenData.user_data.id})`);
+				res.redirect("/?login=success");
+			});
+		});
 	} catch (err) {
 		const message = err instanceof Error ? err.message : "Unknown error";
 		log(`Login error: ${message}`);
@@ -79,6 +102,9 @@ authController.get("/logout", (req, res) => {
 			return res.status(500).json({ error: "Failed to logout" });
 		}
 		log(`User ${userName} logged out`);
+		
+		// Limpar cookie de sessão explicitamente (nome correto: geminify-session)
+		res.clearCookie("geminify-session");
 		res.redirect("/?logout=success");
 	});
 });

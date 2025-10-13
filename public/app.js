@@ -5429,7 +5429,19 @@ window.addEventListener("pageshow", (event) => {
 });
 
 // Verificar status de login e atualizar interface
+// Adicionar debounce para evitar múltiplas chamadas simultâneas
+let checkAuthStatusTimeout = null;
+let lastAuthCheckTime = 0;
+const AUTH_CHECK_COOLDOWN = 2000; // 2 segundos entre verificações
+
 async function checkAuthStatus() {
+  // Evitar múltiplas chamadas em curto período
+  const now = Date.now();
+  if (now - lastAuthCheckTime < AUTH_CHECK_COOLDOWN) {
+    return window.wasLoggedIn || false;
+  }
+  lastAuthCheckTime = now;
+  
   try {
     const response = await fetch('/status');
     const data = await response.json();
@@ -5511,9 +5523,8 @@ function checkURLParams() {
 }
 
 // Verificar login periodicamente para manter sessão ativa
-function startPeriodicLoginCheck() {
-  setInterval(checkAuthStatus, 5 * 60 * 1000); // A cada 5 minutos
-}
+// REMOVIDO: polling contínuo que causa loops de /authorize
+// A verificação agora acontece apenas em eventos específicos (focus, visibilitychange)
 
 // Inicializar aplicação
 async function initApp() {
@@ -5528,8 +5539,8 @@ async function initApp() {
     loadUserPlaylists();
   }
   
-  // Iniciar verificação periódica
-  startPeriodicLoginCheck();
+  // NÃO iniciar polling periódico para evitar loops
+  // checkAuthStatus será chamado apenas quando necessário (focus, visibilitychange)
 }
 
 initApp();

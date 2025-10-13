@@ -17,12 +17,14 @@ export const rateLimiter = rateLimit({
 // Rate limiting mais restritivo para auth endpoints
 export const authRateLimiter = rateLimit({
 	windowMs: 15 * 60 * 1000, // 15 minutos
-	max: 10, // máximo 10 tentativas de auth por IP
+	max: 5, // máximo 5 tentativas de auth por IP em 15 minutos
 	message: {
 		error: "Too many authentication attempts, please try again later."
 	},
 	standardHeaders: true,
 	legacyHeaders: false,
+	skipSuccessfulRequests: false, // Conta todas as tentativas, não apenas falhas
+	skipFailedRequests: false,
 });
 
 // Configuração do Helmet para segurança
@@ -45,7 +47,7 @@ export const helmetMiddleware = helmet({
 export const sessionMiddleware = session({
 	secret: process.env.SESSION_SECRET || 'fallback-secret-change-this',
 	resave: false,
-	saveUninitialized: false,
+	saveUninitialized: false, // Não salvar sessões vazias
 	rolling: true, // Renova cookie a cada requisição
 	cookie: {
 		secure: !appConfig.isDevelopment, // HTTPS apenas em produção
