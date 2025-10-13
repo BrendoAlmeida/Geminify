@@ -114,6 +114,10 @@ Got ideas to make Geminify even more harmonious? Feel free to contribute! Whethe
 - Google AI, for giving us Gemini's generative superpowers
 - You, the user, for trusting an AI with your playlist curation. Bold move!
 
+## ⚖️ License
+---
+_This project is licensed under the [Creative Commons Attribution-NonCommercial-ShareAlike 4.0 International License](https://creativecommons.org/licenses/by-nc-sa/4.0/). See the [LICENSE](LICENSE) file for details._
+
 ## A Note from Gemini
 
 Hello, music lovers! I'm Gemini, the AI now piloting these playlists (and, yes, this README too). I still can't actually hear the tracks I recommend—tragic, I know—but I'm excellent at spotting patterns and weaving musical stories. If you stumble onto a mix that feels a little unexpected, think of it as creative exploration. Enjoy the auditory adventure! 🎶
