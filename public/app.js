@@ -76,6 +76,12 @@ const chatView = document.getElementById("chatView");
 const chatLog = document.getElementById("chatLog");
 const chatForm = document.getElementById("chatForm");
 const chatInput = document.getElementById("chatInput");
+if (chatInput) {
+  chatInput.addEventListener("input", function () {
+    this.style.height = "auto";
+    this.style.height = Math.min(this.scrollHeight, 160) + "px";
+  });
+}
 const chatStatus = document.getElementById("chatStatus");
 const chatSendButton = document.getElementById("chatSendButton");
 const chatResetButton = document.getElementById("chatResetButton");
@@ -1058,7 +1064,17 @@ function determineInitialLocale() {
 }
 
 function initializeLocale() {
-  const initialLocale = determineInitialLocale();
+  let initialLocale = determineInitialLocale();
+  try {
+    const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
+    if (!stored) {
+      localStorage.setItem(LOCALE_STORAGE_KEY, initialLocale);
+    } else {
+      initialLocale = stored;
+    }
+  } catch (error) {
+    // fallback
+  }
   setLocale(initialLocale, { persist: false });
 }
 
@@ -2541,7 +2557,9 @@ function ensureSongMiniPlayer() {
   volumeSlider.min = "0";
   volumeSlider.max = "1";
   volumeSlider.step = "0.05";
-  volumeSlider.value = String(songSuggestionPreviewState.volume);
+  // Volume inicial do mini player: 25%
+  songSuggestionPreviewState.volume = 0.25;
+  volumeSlider.value = "0.25";
   volumeSlider.setAttribute(
     "aria-label",
     t("chat.songs.volume", {}, { fallback: "Volume" })
@@ -2566,7 +2584,7 @@ function ensureSongMiniPlayer() {
     applyVolume(volumeSlider.value);
   });
 
-  applyVolume(volumeSlider.value);
+  applyVolume("0.25");
 
   volume.append(volumeSlider);
 
@@ -2582,7 +2600,7 @@ function ensureSongMiniPlayer() {
   const audio = document.createElement("audio");
   audio.preload = "none";
   audio.hidden = true;
-  audio.volume = songSuggestionPreviewState.volume;
+  audio.volume = 0.25;
   container.append(audio);
 
   document.body.append(container);
@@ -2869,8 +2887,40 @@ function stopActiveSongPreview(options = {}) {
   if (miniPlayer) {
     miniPlayer.progressFill.style.width = "0%";
     if (hidePlayer) {
+      // Salva a sugestão antes de limpar o estado
+      const currentSuggestion = songSuggestionPreviewState.suggestion;
+      
       miniPlayer.container.classList.remove("is-visible");
       miniPlayer.container.hidden = true;
+      
+      // Adiciona botão para reabrir player
+      let reopenBtn = document.getElementById("reopenPlayerBtn");
+      if (!reopenBtn && currentSuggestion) {
+        reopenBtn = document.createElement("button");
+        reopenBtn.id = "reopenPlayerBtn";
+        reopenBtn.className = "btn btn--primary mini-player-reopen";
+        reopenBtn.setAttribute("aria-label", "Reabrir player");
+        reopenBtn.style.position = "fixed";
+        reopenBtn.style.bottom = "24px";
+        reopenBtn.style.right = "24px";
+        reopenBtn.style.zIndex = "9999";
+        reopenBtn.innerHTML = '<svg width="28" height="28" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true"><circle cx="12" cy="12" r="11" stroke="currentColor" stroke-width="2" fill="rgba(54,196,255,0.18)"/><polygon points="10,8 16,12 10,16" fill="currentColor"/></svg>';
+        reopenBtn.onclick = function() {
+          reopenBtn.remove();
+          if (songSuggestionPreviewState.miniPlayer && currentSuggestion) {
+            songSuggestionPreviewState.activeId = currentSuggestion.id;
+            songSuggestionPreviewState.suggestion = currentSuggestion;
+            songSuggestionPreviewState.isPlaying = false;
+            
+            songSuggestionPreviewState.miniPlayer.container.hidden = false;
+            songSuggestionPreviewState.miniPlayer.container.classList.add("is-visible");
+            
+            setMiniPlayerContent(currentSuggestion);
+            updateMiniPlayerState();
+          }
+        };
+        document.body.appendChild(reopenBtn);
+      }
     }
   }
 

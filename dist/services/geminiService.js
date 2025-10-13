@@ -10,6 +10,7 @@ import { formatSpotifyError } from "../utils/errors.js";
 import { sleep } from "../utils/sleep.js";
 const MAX_CHAT_MESSAGES = 12;
 const MAX_CHAT_MESSAGE_LENGTH = 1200;
+const DEFAULT_SPOTIFY_MARKET = process.env.SPOTIFY_MARKET ?? "US";
 export function getGeminiModel(modelName) {
     return geminiClient.getGenerativeModel({
         model: modelName ?? geminiConfig.defaultModel,
@@ -140,6 +141,59 @@ function parseSongExample(example) {
         artist: artist || undefined,
     };
 }
+function tokenizeName(value) {
+    return normalizeForMatch(value)
+        .split(" ")
+        .map((part) => part.trim())
+        .filter(Boolean);
+}
+function isStrictArtistName(name) {
+    const trimmed = name.trim();
+    if (trimmed.length <= 4) {
+        return true;
+    }
+    const letters = trimmed.replace(/[^A-Za-z]/g, "");
+    if (!letters.length) {
+        return false;
+    }
+    const uppercaseCount = letters.replace(/[^A-Z]/g, "").length;
+    return uppercaseCount / letters.length >= 0.6;
+}
+function scoreArtistNameMatch(targetName, candidateName) {
+    const targetTokens = tokenizeName(targetName);
+    const candidateTokens = tokenizeName(candidateName);
+    if (!targetTokens.length || !candidateTokens.length) {
+        return -Infinity;
+    }
+    const strict = isStrictArtistName(targetName);
+    if (strict) {
+        if (candidateTokens.length !== targetTokens.length) {
+            return -Infinity;
+        }
+        const exact = targetTokens.every((token, index) => token === candidateTokens[index]);
+        return exact ? 200 : -Infinity;
+    }
+    const normalizedTarget = targetTokens.join(" ");
+    const normalizedCandidate = candidateTokens.join(" ");
+    if (normalizedTarget === normalizedCandidate) {
+        return 180;
+    }
+    const matchedTokens = targetTokens.filter((token) => candidateTokens.includes(token));
+    if (!matchedTokens.length) {
+        return -Infinity;
+    }
+    let score = matchedTokens.length * 40;
+    if (candidateTokens[0] === targetTokens[0]) {
+        score += 25;
+    }
+    const lengthGap = Math.abs(candidateTokens.join("").length - targetTokens.join("").length);
+    score -= lengthGap * 2;
+    const extraTokens = candidateTokens.length - matchedTokens.length;
+    if (extraTokens > 0) {
+        score -= extraTokens * 12;
+    }
+    return score;
+}
 function buildFallbackSuggestion(parsed, example, index, options = {}) {
     const baseTitle = parsed.title || example.trim();
     const baseArtist = parsed.artist ?? "";
@@ -222,7 +276,10 @@ async function findBestTrackForSuggestion(parsed, example) {
         ];
     for (const query of queries) {
         try {
-            const searchResponse = await spotifyApi.searchTracks(query, { limit: 20 });
+            const searchResponse = await spotifyApi.searchTracks(query, {
+                limit: 20,
+                market: DEFAULT_SPOTIFY_MARKET,
+            });
             const items = searchResponse.body.tracks?.items ?? [];
             if (!items.length) {
                 continue;
@@ -500,8 +557,12 @@ Responda somente com um JSON contendo estes campos:
 
 Regras:
 - Reflita apenas sobre a mensagem do usuário e o contexto fornecido.
+- Divida a investigação em várias consultas específicas (por artista, faixa e tema). Nunca utilize uma única busca genérica para cobrir tudo.
 - Converta qualquer referência a música em um objeto com título e artista quando possível.
+- Ao sugerir buscas por artistas, sempre inclua músicas do artista na resposta e planeje mais de uma faixa por artista.
+- Trate nomes de artistas curtos ou em maiúsculas como correspondências exatas; evite expandir para artistas diferentes que apenas contenham a mesma sequência de letras.
 - Sugira buscas adicionais com base em temas se elas ajudarem a responder melhor.
+- Após analisar as respostas das pesquisas, gere uma lista de músicas relevante para o usuário.
 - Prefira português para campos de texto.
 - Use arrays vazios [] quando não houver dados.
 
@@ -529,17 +590,84 @@ function buildSongExampleFromAnalysis(song) {
     return song.artist ? `${song.title} — ${song.artist}` : song.title;
 }
 async function searchSpotifyForArtist(artist, options = {}) {
-    const limit = options.limit ?? 20;
+    const artistLimit = options.artistLimit ?? 6;
+    const trackLimit = options.trackLimit ?? 6;
     const retries = options.retries ?? 2;
+    const market = options.market ?? DEFAULT_SPOTIFY_MARKET;
+    const collected = [];
+    const seenTrackIds = new Set();
     let attempt = 0;
     while (attempt <= retries) {
         try {
-            const response = await spotifyApi.searchTracks(`artist:${artist}`, { limit });
-            const items = response.body.tracks?.items ?? [];
-            if (!items.length) {
-                return null;
+            const response = await spotifyApi.searchArtists(artist, { limit: artistLimit });
+            const candidates = response.body.artists?.items ?? [];
+            if (!candidates.length) {
+                break;
             }
-            return items.find((track) => track?.preview_url) ?? items[0];
+            let bestArtist = null;
+            let bestScore = -Infinity;
+            for (const candidate of candidates) {
+                if (!candidate?.name) {
+                    continue;
+                }
+                const score = scoreArtistNameMatch(artist, candidate.name);
+                if (score > bestScore) {
+                    bestScore = score;
+                    bestArtist = candidate;
+                }
+            }
+            if (!bestArtist?.id || bestScore === -Infinity) {
+                break;
+            }
+            try {
+                const topTracksResponse = await spotifyApi.getArtistTopTracks(bestArtist.id, market);
+                const topTracks = topTracksResponse.body.tracks ?? [];
+                for (const track of topTracks) {
+                    if (!track) {
+                        continue;
+                    }
+                    if (track.id && seenTrackIds.has(track.id)) {
+                        continue;
+                    }
+                    if (track.id) {
+                        seenTrackIds.add(track.id);
+                    }
+                    collected.push(track);
+                    if (collected.length >= trackLimit) {
+                        return collected;
+                    }
+                }
+            }
+            catch (error) {
+                log(`Spotify top tracks error for "${artist}": ${formatSpotifyError(error)}`);
+            }
+            if (collected.length < trackLimit) {
+                const searchResponse = await spotifyApi.searchTracks(`artist:${bestArtist.name}`, {
+                    limit: Math.max(trackLimit * 2, 10),
+                    market,
+                });
+                const trackItems = searchResponse.body.tracks?.items ?? [];
+                for (const track of trackItems) {
+                    if (!track?.artists?.length) {
+                        continue;
+                    }
+                    const hasMatch = track.artists.some((artistEntry) => artistEntry?.name ? scoreArtistNameMatch(artist, artistEntry.name) > 0 : false);
+                    if (!hasMatch) {
+                        continue;
+                    }
+                    if (track.id && seenTrackIds.has(track.id)) {
+                        continue;
+                    }
+                    if (track.id) {
+                        seenTrackIds.add(track.id);
+                    }
+                    collected.push(track);
+                    if (collected.length >= trackLimit) {
+                        return collected;
+                    }
+                }
+            }
+            return collected;
         }
         catch (error) {
             if (error?.statusCode === 429 && attempt < retries) {
@@ -548,18 +676,19 @@ async function searchSpotifyForArtist(artist, options = {}) {
                 continue;
             }
             log(`Spotify artist search error for "${artist}": ${formatSpotifyError(error)}`);
-            return null;
+            break;
         }
     }
-    return null;
+    return collected;
 }
 async function searchSpotifyForKeyword(keyword, options = {}) {
     const limit = options.limit ?? 20;
     const retries = options.retries ?? 2;
+    const market = DEFAULT_SPOTIFY_MARKET;
     let attempt = 0;
     while (attempt <= retries) {
         try {
-            const response = await spotifyApi.searchTracks(keyword, { limit });
+            const response = await spotifyApi.searchTracks(keyword, { limit, market });
             const items = response.body.tracks?.items ?? [];
             if (!items.length) {
                 return null;
@@ -664,49 +793,94 @@ async function performSpotifyResearch(analysis) {
     for (const query of analysis.queries) {
         const reason = query.reason?.trim() || undefined;
         try {
-            let suggestion = null;
+            const entrySuggestions = [];
+            const captureSuggestion = async (suggestion) => {
+                const previousCount = aggregated.length;
+                await appendSuggestion(suggestion);
+                if (aggregated.length > previousCount) {
+                    entrySuggestions.push(suggestion);
+                }
+            };
             if (query.type === "artist") {
-                const track = await searchSpotifyForArtist(query.query);
-                if (track) {
-                    suggestion = mapTrackToSuggestion(track, {
-                        title: track.name ?? query.query,
-                        artist: track.artists?.[0]?.name ?? query.query,
-                    }, aggregated.length);
+                try {
+                    const artistTracks = await searchSpotifyForArtist(query.query, {
+                        trackLimit: 6,
+                        market: DEFAULT_SPOTIFY_MARKET,
+                    });
+                    for (const track of artistTracks) {
+                        if (!track) {
+                            continue;
+                        }
+                        const artists = (track.artists ?? [])
+                            .map((artistEntry) => artistEntry?.name)
+                            .filter(Boolean)
+                            .join(", ");
+                        const suggestion = mapTrackToSuggestion(track, {
+                            title: track.name ?? query.query,
+                            artist: artists || query.query,
+                        }, aggregated.length + entrySuggestions.length);
+                        await captureSuggestion(suggestion);
+                        if (aggregated.length >= 18) {
+                            break;
+                        }
+                    }
+                    if (!entrySuggestions.length) {
+                        const fallbackResponse = await spotifyApi.searchTracks(query.query, {
+                            limit: 8,
+                            market: DEFAULT_SPOTIFY_MARKET,
+                        });
+                        const fallbackItems = fallbackResponse.body.tracks?.items ?? [];
+                        for (const track of fallbackItems) {
+                            if (!track?.artists?.length) {
+                                continue;
+                            }
+                            const match = track.artists.some((artistEntry) => artistEntry?.name ? scoreArtistNameMatch(query.query, artistEntry.name) > 0 : false);
+                            if (!match) {
+                                continue;
+                            }
+                            const artists = (track.artists ?? [])
+                                .map((artistEntry) => artistEntry?.name)
+                                .filter(Boolean)
+                                .join(", ");
+                            const suggestion = mapTrackToSuggestion(track, {
+                                title: track.name ?? query.query,
+                                artist: artists || query.query,
+                            }, aggregated.length + entrySuggestions.length);
+                            await captureSuggestion(suggestion);
+                            if (entrySuggestions.length) {
+                                break;
+                            }
+                        }
+                    }
+                }
+                catch (error) {
+                    log(`Spotify artist search error for "${query.query}": ${formatSpotifyError(error)}`);
                 }
             }
             else if (query.type === "keyword") {
                 const track = await searchSpotifyForKeyword(query.query);
                 if (track) {
-                    suggestion = mapTrackToSuggestion(track, {
+                    const suggestion = mapTrackToSuggestion(track, {
                         title: track.name ?? query.query,
                         artist: track.artists?.[0]?.name ?? "",
-                    }, aggregated.length);
+                    }, aggregated.length + entrySuggestions.length);
+                    await captureSuggestion(suggestion);
                 }
             }
             else {
                 const parsed = parseSongExample(query.query);
                 const track = await findBestTrackForSuggestion(parsed, query.query);
                 if (track) {
-                    suggestion = mapTrackToSuggestion(track, parsed, aggregated.length);
+                    const suggestion = mapTrackToSuggestion(track, parsed, aggregated.length + entrySuggestions.length);
+                    await captureSuggestion(suggestion);
                 }
             }
-            if (suggestion) {
-                await appendSuggestion(suggestion);
-                items.push({
-                    type: query.type,
-                    query: query.query,
-                    reason,
-                    suggestions: [suggestion],
-                });
-            }
-            else {
-                items.push({
-                    type: query.type,
-                    query: query.query,
-                    reason,
-                    suggestions: [],
-                });
-            }
+            items.push({
+                type: query.type,
+                query: query.query,
+                reason,
+                suggestions: entrySuggestions,
+            });
         }
         catch (error) {
             log(`Spotify research error for "${query.query}": ${formatSpotifyError(error)}`);
@@ -889,6 +1063,8 @@ export function buildChatPrompt(messages, playlistContext, analysis, research) {
     return `You are Geminify's playlist ideation assistant. Your task is to help users shape playlist ideas, moods, storylines, and track inspirations.
 
 Prioritize inspiring the user with concrete artist and track ideas whenever it adds value. Spotlight a mix of familiar and fresh names that fit the user's vibe.
+
+Always review any provided research results before answering and use them to build a coherent, step-by-step song list.
 
 ${playlistContext
         ? `The user wants to enhance the Spotify playlist described below. Respect what already works and suggest thoughtful evolutions.${playlistSection}\n`

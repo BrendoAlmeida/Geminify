@@ -76,6 +76,12 @@ const chatView = document.getElementById("chatView");
 const chatLog = document.getElementById("chatLog");
 const chatForm = document.getElementById("chatForm");
 const chatInput = document.getElementById("chatInput");
+if (chatInput) {
+  chatInput.addEventListener("input", function () {
+    this.style.height = "auto";
+    this.style.height = Math.min(this.scrollHeight, 160) + "px";
+  });
+}
 const chatStatus = document.getElementById("chatStatus");
 const chatSendButton = document.getElementById("chatSendButton");
 const chatResetButton = document.getElementById("chatResetButton");
@@ -1058,7 +1064,17 @@ function determineInitialLocale() {
 }
 
 function initializeLocale() {
-  const initialLocale = determineInitialLocale();
+  let initialLocale = determineInitialLocale();
+  try {
+    const stored = localStorage.getItem(LOCALE_STORAGE_KEY);
+    if (!stored) {
+      localStorage.setItem(LOCALE_STORAGE_KEY, initialLocale);
+    } else {
+      initialLocale = stored;
+    }
+  } catch (error) {
+    // fallback
+  }
   setLocale(initialLocale, { persist: false });
 }
 
@@ -2582,7 +2598,7 @@ function ensureSongMiniPlayer() {
   const audio = document.createElement("audio");
   audio.preload = "none";
   audio.hidden = true;
-  audio.volume = songSuggestionPreviewState.volume;
+  audio.volume = 0.3;
   container.append(audio);
 
   document.body.append(container);
@@ -2871,6 +2887,25 @@ function stopActiveSongPreview(options = {}) {
     if (hidePlayer) {
       miniPlayer.container.classList.remove("is-visible");
       miniPlayer.container.hidden = true;
+      // Adiciona botão para reabrir player
+      let reopenBtn = document.getElementById("reopenPlayerBtn");
+      if (!reopenBtn) {
+        reopenBtn = document.createElement("button");
+        reopenBtn.id = "reopenPlayerBtn";
+        reopenBtn.className = "btn btn--primary mini-player-reopen";
+        reopenBtn.textContent = "Reabrir player";
+        reopenBtn.style.position = "fixed";
+        reopenBtn.style.bottom = "24px";
+        reopenBtn.style.right = "24px";
+        reopenBtn.style.zIndex = "9999";
+        reopenBtn.onclick = function() {
+          reopenBtn.remove();
+          if (songSuggestionPreviewState.suggestion) {
+            playSongPreview(songSuggestionPreviewState.suggestion);
+          }
+        };
+        document.body.appendChild(reopenBtn);
+      }
     }
   }
 

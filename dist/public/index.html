@@ -219,10 +219,10 @@
               <div class="chat-form__field">
                 <div class="chat-input-row">
                   <div class="chat-input-wrapper">
-                    <input
+                    <textarea
                       id="chatInput"
                       name="message"
-                      type="text"
+                      rows="1"
                       autocomplete="off"
                       autocapitalize="off"
                       autocorrect="off"
@@ -230,6 +230,8 @@
                       placeholder="e.g. I want a cozy playlist with indie game lo-fi"
                       data-i18n-placeholder="chat.form.placeholder"
                       required
+                      style="resize:none;overflow:hidden;min-height:40px;max-height:160px;"
+                    ></textarea>
                     />
                     <button
                       type="button"

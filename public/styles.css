@@ -341,10 +341,36 @@ canvas#background {
   box-shadow: inset 0 8px 16px rgba(0, 0, 0, 0.18);
 }
 
+
+/* Estilo para textarea do chat */
+.chat-form textarea {
+  width: 100%;
+  border-radius: 18px;
+  border: 1px solid rgba(255, 255, 255, 0.18);
+  background: rgba(8, 12, 28, 0.65);
+  color: var(--text-primary);
+  font-family: inherit;
+  font-size: 1rem;
+  padding: 14px 18px;
+  min-height: 80px;
+  line-height: 1.5;
+  box-shadow: inset 0 8px 16px rgba(0, 0, 0, 0.18);
+  resize: vertical;
+  transition: border var(--transition), background var(--transition);
+}
+
 .chat-form textarea:focus {
   outline: none;
   border-color: var(--accent-strong);
   background: rgba(8, 12, 28, 0.8);
+}
+
+@media (max-width: 520px) {
+  .chat-form textarea {
+    font-size: 0.95rem;
+    padding: 10px 12px;
+    min-height: 56px;
+  }
 }
 
 .chat-form__actions {
@@ -677,7 +703,7 @@ body.modal-open {
 }
 
 .chat-panel__header .panel__description {
-  flex: 1 1 320px;
+  border-radius: 8px;
   margin: 0;
 }
 
@@ -694,7 +720,6 @@ body.modal-open {
   align-items: flex-start;
 }
 
-/* Note: chat-playlist-picker styles removed - replaced with playlist-selector */
 
 @media (max-width: 800px) {
   .chat-panel__header {

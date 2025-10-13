@@ -677,7 +677,12 @@ body.modal-open {
 }
 
 .chat-panel__header .panel__description {
-  flex: 1 1 320px;
+  border-radius: 8px;
+  margin: 0;
+}
+
+.chat-panel__header .panel__description {
+    border-radius: 8px;
   margin: 0;
 }
 
