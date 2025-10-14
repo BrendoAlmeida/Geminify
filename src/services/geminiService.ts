@@ -22,7 +22,7 @@ import {
 } from "../interfaces/index.js";
 import { log } from "../utils/logger.js";
 import { spotifyApi } from "./spotifyClient.js";
-import { MissingTokenError, refreshTokenIfNeeded } from "./spotifyAuthService.js";
+import { MissingTokenError } from "./spotifyAuthService.js";
 import { normalizeForMatch, extractArtistTokens } from "../utils/spotify.js";
 import { formatSpotifyError } from "../utils/errors.js";
 import { sleep } from "../utils/sleep.js";
@@ -423,19 +423,8 @@ async function resolveChatSongSuggestions(songExamples: string[]): Promise<ChatS
     return [];
   }
 
-  try {
-    await refreshTokenIfNeeded();
-  } catch (error) {
-    const reason = error instanceof MissingTokenError ? "auth_required" : "no_preview";
-    if (error instanceof MissingTokenError) {
-      log("Spotify authentication missing for chat suggestions; returning basic entries.");
-    } else {
-      log(`Failed to refresh Spotify token for chat suggestions: ${formatSpotifyError(error)}`);
-    }
-    return songExamples.map((example, index) =>
-      buildFallbackSuggestion(parseSongExample(example), example, index, { reason })
-    );
-  }
+  // Token refresh é feito pelo middleware ensureSpotifyAuth
+  // Aqui apenas usamos o spotifyApi que já deve estar configurado
 
   const suggestions: ChatSongSuggestion[] = [];
 
@@ -958,32 +947,8 @@ async function performSpotifyResearch(
     });
   };
 
-  try {
-    await refreshTokenIfNeeded();
-  } catch (error) {
-    const reason = error instanceof MissingTokenError ? "auth_required" : "no_preview";
-    log(`Spotify auth not available for research: ${formatSpotifyError(error)}`);
-    const fallbacks = analysis.songMentions.map((song, index) =>
-      buildFallbackSuggestion(parseSongExample(buildSongExampleFromAnalysis(song)), buildSongExampleFromAnalysis(song), index, { reason })
-    );
-    fallbacks.forEach((suggestion) => {
-      if (suggestion) {
-        aggregated.push(suggestion);
-      }
-    });
-    return {
-      performed: false,
-      items: analysis.songMentions.length
-        ? analysis.songMentions.map((song) => ({
-            type: "track" as const,
-            query: buildSongExampleFromAnalysis(song),
-            reason: "Sem token do Spotify, usando fallback",
-            suggestions: [],
-          }))
-        : [],
-      suggestions: aggregated,
-    };
-  }
+  // Token refresh é feito pelo middleware ensureSpotifyAuth
+  // Aqui apenas usamos o spotifyApi que já deve estar configurado
 
   for (const song of analysis.songMentions) {
     if (!song?.title) {

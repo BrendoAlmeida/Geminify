@@ -45,6 +45,8 @@ authController.get("/callback", async (req, res) => {
 	const code = typeof req.query.code === "string" ? req.query.code : undefined;
 	const state = typeof req.query.state === "string" ? req.query.state : undefined;
 
+	log(`Callback received - Code exists: ${!!code}, State: ${state}, Expected state: ${OAUTH_STATE}`);
+
 	if (!code) {
 		log("Callback: missing authorization code");
 		return res.redirect("/?error=missing_code");
@@ -56,13 +58,16 @@ authController.get("/callback", async (req, res) => {
 	}
 
 	try {
-		log("Received callback from Spotify, exchanging code for tokens");
+		log(`Received callback from Spotify, exchanging code for tokens. Code length: ${code.length}`);
 		const tokenData = await exchangeCodeForTokens(code);
+		
+		// Log detalhado do token recebido (sem expor tokens sensíveis)
+		log(`Token exchange successful. User: ${tokenData.user_data?.display_name || 'unknown'}`);
 		
 		// Regenerar sessão para garantir que está limpa e funcional
 		req.session.regenerate((err) => {
 			if (err) {
-				log(`Error regenerating session: ${err}`);
+				log(`Error regenerating session: ${JSON.stringify(err)}`);
 				return res.redirect("/?error=session_error");
 			}
 			
@@ -79,7 +84,7 @@ authController.get("/callback", async (req, res) => {
 			// Salvar sessão explicitamente antes de redirecionar
 			req.session.save((saveErr) => {
 				if (saveErr) {
-					log(`Error saving session: ${saveErr}`);
+					log(`Error saving session: ${JSON.stringify(saveErr)}, Stack: ${saveErr.stack || 'no stack'}`);
 					return res.redirect("/?error=session_error");
 				}
 				
@@ -88,8 +93,31 @@ authController.get("/callback", async (req, res) => {
 			});
 		});
 	} catch (err) {
-		const message = err instanceof Error ? err.message : "Unknown error";
-		log(`Login error: ${message}`);
+		// Log detalhado do erro do Spotify
+		let errorDetails = 'Unknown error';
+		
+		if (err instanceof Error) {
+			errorDetails = `${err.name}: ${err.message}`;
+			
+			// Extrair detalhes específicos do WebapiError
+			const webApiError = err as any;
+			if (webApiError.body) {
+				errorDetails += ` | Body: ${JSON.stringify(webApiError.body)}`;
+			}
+			if (webApiError.statusCode) {
+				errorDetails += ` | Status: ${webApiError.statusCode}`;
+			}
+			if (webApiError.headers) {
+				errorDetails += ` | Headers: ${JSON.stringify(webApiError.headers)}`;
+			}
+			if (err.stack) {
+				errorDetails += ` | Stack: ${err.stack}`;
+			}
+		} else {
+			errorDetails = JSON.stringify(err);
+		}
+		
+		log(`Login error: ${errorDetails}`);
 		res.redirect("/?error=login_failed");
 	}
 });

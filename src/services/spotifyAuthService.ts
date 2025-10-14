@@ -1,6 +1,4 @@
-import { promises as fs } from "fs";
 import { spotifyApi } from "./spotifyClient.js";
-import { tokenPath } from "../config/paths.js";
 import { TokenData } from "../interfaces/index.js";
 import { log } from "../utils/logger.js";
 import SpotifyWebApi from "spotify-web-api-node";
@@ -34,52 +32,98 @@ export function createUserSpotifyApi(accessToken: string, refreshToken?: string)
   return api;
 }
 
-async function readToken(): Promise<TokenData> {
-  try {
-    const raw = await fs.readFile(tokenPath, "utf8");
-    return JSON.parse(raw) as TokenData;
-  } catch (error) {
-    const nodeError = error as NodeJS.ErrnoException;
-    if (nodeError?.code === "ENOENT") {
-      log("Token file not found. User must log in to Spotify.");
-      throw new MissingTokenError();
-    }
-
-    log(`Failed to read token file: ${error}`);
-    throw new Error("Failed to refresh token. Please log in again.");
-  }
-}
-
-async function writeToken(data: TokenData): Promise<void> {
-  await fs.writeFile(tokenPath, JSON.stringify(data));
-}
-
 export function getAuthorizeUrl(scopes: string[], state: string): string {
   return spotifyApi.createAuthorizeURL(scopes, state);
 }
 
 export async function exchangeCodeForTokens(code: string): Promise<TokenData & { user_data?: any }> {
-  const data = await spotifyApi.authorizationCodeGrant(code);
-  const { access_token, refresh_token, expires_in } = data.body;
+  log(`Exchanging code with Spotify. ClientId exists: ${!!process.env.SPOTIFY_CLIENT_ID}, ClientSecret exists: ${!!process.env.SPOTIFY_CLIENT_SECRET}, RedirectUri: ${process.env.SPOTIFY_REDIRECT_URI}`);
+  
+  try {
+    // Tentar com fetch manualmente para obter erro mais detalhado
+    const clientId = process.env.SPOTIFY_CLIENT_ID;
+    const clientSecret = process.env.SPOTIFY_CLIENT_SECRET;
+    const redirectUri = process.env.SPOTIFY_REDIRECT_URI;
+    
+    if (!clientId || !clientSecret || !redirectUri) {
+      throw new Error('Missing Spotify credentials');
+    }
+    
+    const credentials = Buffer.from(`${clientId}:${clientSecret}`).toString('base64');
+    
+    log(`Making manual token exchange request...`);
+    const response = await fetch('https://accounts.spotify.com/api/token', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Basic ${credentials}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: new URLSearchParams({
+        grant_type: 'authorization_code',
+        code: code,
+        redirect_uri: redirectUri,
+      }).toString(),
+    });
+    
+    const responseText = await response.text();
+    log(`Spotify response status: ${response.status}`);
+    log(`Spotify response body: ${responseText}`);
+    
+    if (!response.ok) {
+      throw new Error(`Spotify token exchange failed: ${response.status} - ${responseText}`);
+    }
+    
+    const tokenData = JSON.parse(responseText);
+    const { access_token, refresh_token, expires_in } = tokenData;
 
-  // Obter dados do usuário
-  spotifyApi.setAccessToken(access_token);
-  const userData = await spotifyApi.getMe();
+    // Obter dados do usuário também com fetch manual
+    log(`Fetching user data with access token...`);
+    const userResponse = await fetch('https://api.spotify.com/v1/me', {
+      headers: {
+        'Authorization': `Bearer ${access_token}`,
+      },
+    });
+    
+    const userResponseText = await userResponse.text();
+    log(`User data response status: ${userResponse.status}`);
+    log(`User data response body: ${userResponseText.substring(0, 200)}...`);
+    
+    if (!userResponse.ok) {
+      throw new Error(`Failed to fetch user data: ${userResponse.status} - ${userResponseText}`);
+    }
+    
+    const userData = JSON.parse(userResponseText);
 
-  const payload: TokenData = {
-    access_token,
-    refresh_token,
-    expires_at: Date.now() + expires_in * 1000,
-  };
+    const payload: TokenData = {
+      access_token,
+      refresh_token,
+      expires_at: Date.now() + expires_in * 1000,
+    };
 
-  // Manter compatibilidade com sistema antigo (salvar no arquivo)
-  await writeToken(payload);
-  spotifyApi.setRefreshToken(refresh_token);
-
-  return {
-    ...payload,
-    user_data: userData.body
-  };
+    return {
+      ...payload,
+      user_data: userData
+    };
+  } catch (error) {
+    // Re-lançar o erro para ser capturado pelo controller
+    const err = error as any;
+    
+    // Log completo do erro
+    log(`Token exchange failed - Full error details:`);
+    log(`  - Name: ${err.name}`);
+    log(`  - Message: ${err.message}`);
+    log(`  - Status: ${err.statusCode || err.status || 'unknown'}`);
+    log(`  - Body: ${JSON.stringify(err.body || {})}`);
+    log(`  - Response: ${JSON.stringify(err.response?.body || {})}`);
+    
+    // Tentar extrair mais informações
+    if (err.response) {
+      log(`  - Response text: ${err.response.text}`);
+      log(`  - Response error: ${JSON.stringify(err.response.error || {})}`);
+    }
+    
+    throw error;
+  }
 }
 
 // Nova função para renovar token de usuário específico
@@ -96,44 +140,11 @@ export async function refreshUserToken(refreshToken: string): Promise<UserTokens
     const data = await tempApi.refreshAccessToken();
     return {
       access_token: data.body.access_token,
-      refresh_token: data.body.refresh_token,
+      refresh_token: data.body.refresh_token || refreshToken, // Fallback para o antigo se não vier novo
       expires_in: data.body.expires_in
     };
   } catch (error) {
     log(`Failed to refresh user token: ${error}`);
     throw new Error("Failed to refresh token. Please log in again.");
   }
-}
-
-export async function refreshTokenIfNeeded(): Promise<void> {
-  const tokenData = await readToken();
-
-  try {
-    if (Date.now() > tokenData.expires_at - 300000) {
-      log("Access token expired or expiring soon, refreshing");
-      spotifyApi.setRefreshToken(tokenData.refresh_token);
-      const data = await spotifyApi.refreshAccessToken();
-      const { access_token, expires_in } = data.body;
-
-      const payload: TokenData = {
-        access_token,
-        refresh_token: tokenData.refresh_token,
-        expires_at: Date.now() + expires_in * 1000,
-      };
-
-      await writeToken(payload);
-      spotifyApi.setAccessToken(access_token);
-      log("Access token refreshed and saved");
-    } else {
-      log("Access token still valid");
-      spotifyApi.setAccessToken(tokenData.access_token);
-    }
-  } catch (error) {
-    log(`Failed to refresh token: ${error}`);
-    throw new Error("Failed to refresh token. Please log in again.");
-  }
-}
-
-export async function clearTokenFile(): Promise<void> {
-  await fs.unlink(tokenPath).catch(() => undefined);
 }

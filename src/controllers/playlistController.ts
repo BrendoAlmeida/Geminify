@@ -19,7 +19,7 @@ import { formatSpotifyError } from "../utils/errors.js";
 import { log } from "../utils/logger.js";
 import { spotifyApi } from "../services/spotifyClient.js";
 import { sleep } from "../utils/sleep.js";
-import { clearTokenFile, createUserSpotifyApi } from "../services/spotifyAuthService.js";
+import { createUserSpotifyApi } from "../services/spotifyAuthService.js";
 import { PlaylistPreview, UnresolvedTrackSelection } from "../interfaces/index.js";
 import SpotifyWebApi from "spotify-web-api-node";
 
@@ -486,7 +486,8 @@ playlistController.get("/user-playlists", async (req, res) => {
 		const statusCode = (error as any)?.statusCode ?? (error as any)?.body?.error?.status;
 
 		if (statusCode === 401 || statusCode === 403) {
-			await clearTokenFile();
+			// Destruir sessão do usuário em caso de token inválido
+			req.session.destroy(() => {});
 			return res.status(statusCode).json({
 				error:
 					statusCode === 401
@@ -670,7 +671,8 @@ playlistController.get("/track-preview", async (req, res) => {
 		}
 
 		if (statusCode === 401 || statusCode === 403) {
-			await clearTokenFile();
+			// Destruir sessão do usuário em caso de token inválido
+			req.session.destroy(() => {});
 			return res.status(statusCode).json({ error: message });
 		}
 

@@ -1,7 +1,6 @@
 import { NextFunction, Request, Response } from "express";
 import {
   MissingTokenError,
-  refreshTokenIfNeeded,
   refreshUserToken,
   createUserSpotifyApi,
 } from "../services/spotifyAuthService.js";

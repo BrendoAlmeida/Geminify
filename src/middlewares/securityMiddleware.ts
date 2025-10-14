@@ -49,11 +49,12 @@ export const sessionMiddleware = session({
 	resave: false,
 	saveUninitialized: false, // Não salvar sessões vazias
 	rolling: true, // Renova cookie a cada requisição
+	proxy: true, // Importante para Render e outros proxies reversos
 	cookie: {
 		secure: !appConfig.isDevelopment, // HTTPS apenas em produção
 		httpOnly: true,
-		maxAge: 1000 * 60 * 60 * 24 * 30, // 30 dias
-		sameSite: 'lax'
+		maxAge: 1000 * 60 * 60 * 24 * 7, // 7 dias
+		sameSite: appConfig.isDevelopment ? 'lax' : 'none' // 'none' para HTTPS em produção
 	},
 	name: 'geminify-session'
 });
