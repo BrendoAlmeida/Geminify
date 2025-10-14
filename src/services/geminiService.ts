@@ -26,6 +26,18 @@ import { MissingTokenError } from "./spotifyAuthService.js";
 import { normalizeForMatch, extractArtistTokens } from "../utils/spotify.js";
 import { formatSpotifyError } from "../utils/errors.js";
 import { sleep } from "../utils/sleep.js";
+import SpotifyWebApi from "spotify-web-api-node";
+
+// API do Spotify em uso (pode ser global ou do usuário específico)
+let currentSpotifyApi: SpotifyWebApi = spotifyApi;
+
+export function setCurrentSpotifyApi(api: SpotifyWebApi) {
+  currentSpotifyApi = api;
+}
+
+export function getCurrentSpotifyApi(): SpotifyWebApi {
+  return currentSpotifyApi;
+}
 
 const MAX_CHAT_MESSAGES = 12;
 const MAX_CHAT_MESSAGE_LENGTH = 1200;
@@ -379,7 +391,7 @@ async function findBestTrackForSuggestion(
 
   for (const query of queries) {
     try {
-      const searchResponse = await spotifyApi.searchTracks(query, {
+      const searchResponse = await getCurrentSpotifyApi().searchTracks(query, {
         limit: 20,
         market: DEFAULT_SPOTIFY_MARKET,
       });
@@ -767,7 +779,7 @@ async function searchSpotifyForArtist(
   let attempt = 0;
   while (attempt <= retries) {
     try {
-      const response = await spotifyApi.searchArtists(artist, { limit: artistLimit });
+      const response = await getCurrentSpotifyApi().searchArtists(artist, { limit: artistLimit });
       const candidates = response.body.artists?.items ?? [];
       if (!candidates.length) {
         break;
@@ -791,7 +803,7 @@ async function searchSpotifyForArtist(
       }
 
       try {
-        const topTracksResponse = await spotifyApi.getArtistTopTracks(bestArtist.id, market);
+        const topTracksResponse = await getCurrentSpotifyApi().getArtistTopTracks(bestArtist.id, market);
         const topTracks = topTracksResponse.body.tracks ?? [];
         for (const track of topTracks) {
           if (!track) {
@@ -813,7 +825,7 @@ async function searchSpotifyForArtist(
       }
 
       if (collected.length < trackLimit) {
-        const searchResponse = await spotifyApi.searchTracks(`artist:${bestArtist.name}`, {
+        const searchResponse = await getCurrentSpotifyApi().searchTracks(`artist:${bestArtist.name}`, {
           limit: Math.max(trackLimit * 2, 10),
           market,
         });
@@ -867,7 +879,7 @@ async function searchSpotifyForKeyword(
   let attempt = 0;
   while (attempt <= retries) {
     try {
-      const response = await spotifyApi.searchTracks(keyword, { limit, market });
+      const response = await getCurrentSpotifyApi().searchTracks(keyword, { limit, market });
       const items = response.body.tracks?.items ?? [];
       if (!items.length) {
         return null;
@@ -1004,7 +1016,7 @@ async function performSpotifyResearch(
           }
 
           if (!entrySuggestions.length) {
-            const fallbackResponse = await spotifyApi.searchTracks(query.query, {
+            const fallbackResponse = await getCurrentSpotifyApi().searchTracks(query.query, {
               limit: 8,
               market: DEFAULT_SPOTIFY_MARKET,
             });
@@ -1333,16 +1345,23 @@ Rules:
 export async function generateChatSuggestion(
   messages: ChatMessage[],
   modelName?: string,
-  playlistContext?: ChatPlaylistContext | null
+  playlistContext?: ChatPlaylistContext | null,
+  userApi?: SpotifyWebApi
 ): Promise<GenerateChatSuggestionResult> {
   if (!messages.length) {
     throw new Error("Chat messages are required");
   }
 
-  const latestUserMessage = messages[messages.length - 1]?.content ?? "";
+  // Configurar API do usuário se fornecida
+  if (userApi) {
+    setCurrentSpotifyApi(userApi);
+  }
 
-  const analysis = await analyzeChatIntent(messages, modelName, playlistContext);
-  const researchResult = analysis ? await performSpotifyResearch(analysis) : undefined;
+  try {
+    const latestUserMessage = messages[messages.length - 1]?.content ?? "";
+
+    const analysis = await analyzeChatIntent(messages, modelName, playlistContext);
+    const researchResult = analysis ? await performSpotifyResearch(analysis) : undefined;
 
   const prompt = buildChatPrompt(messages, playlistContext, analysis, researchResult);
   const response = await generateGeminiJson<GeminiChatResponse>(prompt, modelName);
@@ -1495,9 +1514,15 @@ export async function generateChatSuggestion(
     songExamples,
     songSuggestions,
     analysis,
-  spotifyResearch: researchResult,
+    spotifyResearch: researchResult,
     steps,
   };
+  } finally {
+    // Restaurar API global
+    if (userApi) {
+      setCurrentSpotifyApi(spotifyApi);
+    }
+  }
 }
 
 export async function generateCustomPlaylistWithGemini(

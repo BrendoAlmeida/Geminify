@@ -41,7 +41,6 @@ export async function ensureSpotifyAuth(
 
     if (needsRefresh && req.session.user.refresh_token) {
       try {
-        log(`Proactively refreshing token for ${req.session.user.display_name}...`);
         const newTokens = await refreshUserToken(req.session.user.refresh_token);
         
         // Atualizar sessão com novos tokens
@@ -50,10 +49,7 @@ export async function ensureSpotifyAuth(
           req.session.user.refresh_token = newTokens.refresh_token;
         }
         req.session.user.expires_at = Date.now() + (newTokens.expires_in * 1000);
-        
-        log(`✅ Token refreshed successfully for ${req.session.user.display_name}`);
       } catch (refreshError) {
-        log(`⚠️ Failed to refresh token proactively: ${refreshError}`);
         // Continuar com token atual, será validado abaixo
       }
     }
@@ -70,7 +66,6 @@ export async function ensureSpotifyAuth(
       // Token definitivamente inválido, tentar renovar uma última vez
       if (req.session.user.refresh_token) {
         try {
-          log(`Token invalid for ${req.session.user.display_name}, attempting final refresh...`);
           const newTokens = await refreshUserToken(req.session.user.refresh_token);
           
           req.session.user.access_token = newTokens.access_token;
@@ -79,11 +74,10 @@ export async function ensureSpotifyAuth(
           }
           req.session.user.expires_at = Date.now() + (newTokens.expires_in * 1000);
           
-          log(`✅ Token recovered for ${req.session.user.display_name}`);
           next();
         } catch (refreshError) {
           // Falhou completamente, limpar sessão
-          log(`❌ Failed to recover token for ${req.session.user.display_name}: ${refreshError}`);
+          log(`❌ Token refresh failed for ${req.session.user.display_name}`);
           req.session.destroy(() => {});
           return res
             .status(401)
@@ -104,7 +98,6 @@ export async function ensureSpotifyAuth(
         .json({ error: "Authentication required. Please log in at /auth/login." });
     }
 
-    log(`Token validation failed for ${req.path}: ${error}`);
     const message = formatSpotifyError(error);
     res.status(401).json({ error: message });
   }

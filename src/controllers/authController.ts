@@ -27,7 +27,6 @@ authController.get("/login", authRateLimiter, (req, res) => {
 			log(`Error destroying session on login: ${err}`);
 		}
 		
-		log("Initiating Spotify login");
 		const authorizeUrl = getAuthorizeUrl(SPOTIFY_SCOPES, OAUTH_STATE);
 		// Forçar Spotify a mostrar tela de seleção de conta
 		const urlWithPrompt = `${authorizeUrl}&show_dialog=true`;
@@ -45,10 +44,7 @@ authController.get("/callback", async (req, res) => {
 	const code = typeof req.query.code === "string" ? req.query.code : undefined;
 	const state = typeof req.query.state === "string" ? req.query.state : undefined;
 
-	log(`Callback received - Code exists: ${!!code}, State: ${state}, Expected state: ${OAUTH_STATE}`);
-
 	if (!code) {
-		log("Callback: missing authorization code");
 		return res.redirect("/?error=missing_code");
 	}
 
@@ -58,11 +54,7 @@ authController.get("/callback", async (req, res) => {
 	}
 
 	try {
-		log(`Received callback from Spotify, exchanging code for tokens. Code length: ${code.length}`);
 		const tokenData = await exchangeCodeForTokens(code);
-		
-		// Log detalhado do token recebido (sem expor tokens sensíveis)
-		log(`Token exchange successful. User: ${tokenData.user_data?.display_name || 'unknown'}`);
 		
 		// Regenerar sessão para garantir que está limpa e funcional
 		req.session.regenerate((err) => {
@@ -84,40 +76,17 @@ authController.get("/callback", async (req, res) => {
 			// Salvar sessão explicitamente antes de redirecionar
 			req.session.save((saveErr) => {
 				if (saveErr) {
-					log(`Error saving session: ${JSON.stringify(saveErr)}, Stack: ${saveErr.stack || 'no stack'}`);
+					log(`Error saving session: ${JSON.stringify(saveErr)}`);
 					return res.redirect("/?error=session_error");
 				}
 				
-				log(`✅ Login successful for user ${tokenData.user_data.display_name} (${tokenData.user_data.id})`);
+				log(`✅ Login: ${tokenData.user_data.display_name} (${tokenData.user_data.email || tokenData.user_data.id})`);
 				res.redirect("/?login=success");
 			});
 		});
 	} catch (err) {
-		// Log detalhado do erro do Spotify
-		let errorDetails = 'Unknown error';
-		
-		if (err instanceof Error) {
-			errorDetails = `${err.name}: ${err.message}`;
-			
-			// Extrair detalhes específicos do WebapiError
-			const webApiError = err as any;
-			if (webApiError.body) {
-				errorDetails += ` | Body: ${JSON.stringify(webApiError.body)}`;
-			}
-			if (webApiError.statusCode) {
-				errorDetails += ` | Status: ${webApiError.statusCode}`;
-			}
-			if (webApiError.headers) {
-				errorDetails += ` | Headers: ${JSON.stringify(webApiError.headers)}`;
-			}
-			if (err.stack) {
-				errorDetails += ` | Stack: ${err.stack}`;
-			}
-		} else {
-			errorDetails = JSON.stringify(err);
-		}
-		
-		log(`Login error: ${errorDetails}`);
+		const errorMsg = err instanceof Error ? err.message : 'Unknown error';
+		log(`❌ Login error: ${errorMsg}`);
 		res.redirect("/?error=login_failed");
 	}
 });
@@ -129,9 +98,9 @@ authController.get("/logout", (req, res) => {
 			log(`Error destroying session: ${err}`);
 			return res.status(500).json({ error: "Failed to logout" });
 		}
-		log(`User ${userName} logged out`);
+		log(`✅ Logout: ${userName}`);
 		
-		// Limpar cookie de sessão explicitamente (nome correto: geminify-session)
+		// Limpar cookie de sessão explicitamente
 		res.clearCookie("geminify-session");
 		res.redirect("/?logout=success");
 	});
